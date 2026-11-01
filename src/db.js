@@ -9,6 +9,12 @@ if (!fs.existsSync(DB_DIR)) {
 
 const DB_PATH = path.join(DB_DIR, 'traces.db');
 const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+db.pragma('secure_delete = ON');
+if (process.platform !== 'win32') {
+  fs.chmodSync(DB_DIR, 0o700);
+  fs.chmodSync(DB_PATH, 0o600);
+}
 
 // Initialize schema
 db.exec(`
@@ -84,6 +90,35 @@ export function recordTurn(turn) {
     db.prepare(`UPDATE sessions SET total_tokens = total_tokens + ? WHERE id = ?`)
       .run(turn.tokens, turn.session_id);
   }
+}
+
+export function purgeTurnsBefore(timestamp) {
+  if (!Number.isFinite(timestamp)) throw new TypeError('timestamp must be a finite number');
+  const result = db.prepare('DELETE FROM turns WHERE created_at < ?').run(timestamp);
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  return result.changes;
+}
+
+export function applyTraceRetention(now = Date.now()) {
+  const rawDays = process.env.AGENTGDB_TRACE_RETENTION_DAYS;
+  if (rawDays === undefined || rawDays === '') return 0;
+  const days = Number(rawDays);
+  if (!Number.isFinite(days) || days < 1 || days > 3650) {
+    throw new Error('AGENTGDB_TRACE_RETENTION_DAYS must be an integer from 1 to 3650');
+  }
+  if (!Number.isInteger(days)) throw new Error('AGENTGDB_TRACE_RETENTION_DAYS must be a whole number of days');
+  const cutoff = now - days * 24 * 60 * 60 * 1000;
+  const result = db.transaction(() => {
+    const deletedTurns = db.prepare('DELETE FROM turns WHERE created_at < ?').run(cutoff).changes;
+    const deletedSessions = db.prepare(`
+      DELETE FROM sessions
+      WHERE created_at < ?
+        AND NOT EXISTS (SELECT 1 FROM turns WHERE turns.session_id = sessions.id)
+    `).run(cutoff).changes;
+    return deletedTurns + deletedSessions;
+  })();
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  return result;
 }
 
 export function getTurnsForSession(sessionId, branch = 'main') {

@@ -1,5 +1,7 @@
 # AgentGDB Engineering Specification & 30-Feature Roadmap
 
+> **Unverified historical roadmap:** the checked boxes below are not test evidence or proof of implementation. Current source-backed status is maintained in [FEATURE_STATUS.md](FEATURE_STATUS.md). Do not use this roadmap as a capability or security claim.
+
 ## Strategic Pillars & Feature Matrix
 
 ### Pillar 1: Real-Time Scope Invariant Enforcement & Interception (Hard Gates)

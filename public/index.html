@@ -25,11 +25,11 @@
   <header class="h-16 border-b border-slate-800 bg-slate-900/90 px-6 flex items-center justify-between shrink-0">
     <div class="flex items-center gap-4">
       <div class="flex items-center gap-2.5">
-        <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="w-3 h-3 rounded-full bg-slate-500"></span>
         <span class="font-bold tracking-tight text-lg text-white">Agent<span class="text-indigo-400">GDB</span></span>
       </div>
-      <span class="text-xs bg-emerald-950/80 border border-emerald-700/60 text-emerald-300 px-2.5 py-1 rounded font-mono flex items-center gap-1.5">
-        <span class="w-2 h-2 rounded-full bg-emerald-400"></span> LIVE DAEMON STREAMING
+        <span class="text-xs bg-slate-900 border border-slate-700 text-slate-300 px-2.5 py-1 rounded font-mono flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-slate-400"></span> LOCAL OBSERVER
       </span>
     </div>
 
@@ -65,11 +65,11 @@
         🎯 Active Agent Goal:
       </span>
       <span id="activeGoalText" class="text-xs text-indigo-200 font-medium truncate font-mono">
-        Detecting active goal from agent trajectory...
+        No session selected. Connect an explicit transcript to begin observing.
       </span>
     </div>
-    <div id="liveStreamPill" class="text-[11px] font-mono text-emerald-400 shrink-0 flex items-center gap-1.5 ml-4">
-      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Live Watching Transcript
+    <div id="liveStreamPill" class="text-[11px] font-mono text-slate-400 shrink-0 flex items-center gap-1.5 ml-4">
+      <span class="w-2 h-2 rounded-full bg-slate-500"></span> Observer inactive
     </div>
   </div>
 
@@ -107,7 +107,7 @@
       </div>
 
       <div id="timelineContainer" class="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin">
-        <div class="text-center text-xs text-slate-500 py-10">Streaming live agent events...</div>
+        <div class="text-center text-xs text-slate-500 py-10">No session connected. Register a transcript to observe events.</div>
       </div>
     </aside>
 
@@ -150,7 +150,10 @@ Select any step from the live timeline to view what the agent executed.
       const data = await res.json();
       if (data.activeGoal) {
         document.getElementById('activeGoalText').textContent = data.activeGoal;
+      } else {
+        document.getElementById('activeGoalText').textContent = 'No session selected. Connect an explicit transcript to begin observing.';
       }
+      document.getElementById('liveStreamPill').lastChild.textContent = data.isWatching ? ' Observing transcript (advisory only)' : ' Observer inactive';
     }
 
     // Load available registered projects
@@ -183,7 +186,7 @@ Select any step from the live timeline to view what the agent executed.
     };
 
     // Connect WebSocket
-    const ws = new WebSocket(`ws://${window.location.host}/ws`);
+    const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`);
 
     ws.onmessage = (event) => {
       if (isPaused) return;
@@ -231,17 +234,26 @@ Select any step from the live timeline to view what the agent executed.
         isDrift ? 'bg-rose-950/20 border-rose-900/60 hover:border-rose-600' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'
       }`;
 
-      card.innerHTML = `
-        <div class="flex items-center justify-between text-xs mb-1">
-          <span class="font-mono font-bold text-slate-300">#${step.stepIndex} [${step.toolName}]</span>
-          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded border ${badgeColor}">${badgeText}</span>
-        </div>
-        <div class="text-[11px] font-mono text-slate-400 truncate mb-1">${step.targetPath || step.content || 'Action executed'}</div>
-        <div class="flex items-center justify-between text-[10px] font-mono text-slate-500">
-          <span>+${step.elapsedHours}h mark</span>
-          <span>${new Date(step.timestamp).toLocaleTimeString()}</span>
-        </div>
-      `;
+      const header = document.createElement('div');
+      header.className = 'flex items-center justify-between text-xs mb-1';
+      const title = document.createElement('span');
+      title.className = 'font-mono font-bold text-slate-300';
+      title.textContent = `#${step.stepIndex} [${step.toolName || 'event'}]`;
+      const badge = document.createElement('span');
+      badge.className = `text-[10px] font-mono px-1.5 py-0.5 rounded border ${badgeColor}`;
+      badge.textContent = badgeText;
+      header.append(title, badge);
+      const target = document.createElement('div');
+      target.className = 'text-[11px] font-mono text-slate-400 truncate mb-1';
+      target.textContent = step.targetPath || step.content || 'Action executed';
+      const footer = document.createElement('div');
+      footer.className = 'flex items-center justify-between text-[10px] font-mono text-slate-500';
+      const elapsed = document.createElement('span');
+      elapsed.textContent = `+${Number(step.elapsedHours) || 0}h mark`;
+      const timestamp = document.createElement('span');
+      timestamp.textContent = new Date(step.timestamp).toLocaleTimeString();
+      footer.append(elapsed, timestamp);
+      card.append(header, target, footer);
 
       card.onclick = () => inspectStep(step);
 

@@ -19,6 +19,7 @@ export class LiveSessionStreamWatcher {
     this.lastProcessedLine = 0;
     this.sessionStartTime = null;
     this.activeGoal = 'Discovering active goal from agent trajectory...';
+    this.driftStatus = 'UNKNOWN';
     this.isWatching = false;
     this.watcher = null;
   }
@@ -40,7 +41,7 @@ export class LiveSessionStreamWatcher {
     await this.scanInitialFile();
 
     // Set up file change watcher
-    if (fs.existsSync(this.filePath)) {
+    if (fs.existsSync(this.filePath) && fs.statSync(this.filePath).isFile()) {
       this.watcher = fs.watch(this.filePath, async (eventType) => {
         if (eventType === 'change') {
           await this.readNewLines();
@@ -68,6 +69,7 @@ export class LiveSessionStreamWatcher {
 
   async scanInitialFile() {
     if (!fs.existsSync(this.filePath)) return;
+    if (!fs.statSync(this.filePath).isFile()) return;
 
     const fileStream = fs.createReadStream(this.filePath);
     const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
@@ -93,6 +95,7 @@ export class LiveSessionStreamWatcher {
 
   async readNewLines() {
     if (!fs.existsSync(this.filePath)) return;
+    if (!fs.statSync(this.filePath).isFile()) return;
 
     const fileStream = fs.createReadStream(this.filePath);
     const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
@@ -113,6 +116,7 @@ export class LiveSessionStreamWatcher {
         const normalized = this.normalizeStep(raw, currentLine);
         if (normalized) {
           const driftEvaluation = this.checkDrift(normalized);
+          this.driftStatus = driftEvaluation.isDrift ? 'DRIFT_DETECTED' : 'IN_SCOPE';
           normalized.drift = driftEvaluation;
 
           this.onNewStep({
