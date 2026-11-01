@@ -30,6 +30,7 @@ import { replayManager } from './replayer.js';
 import { analyzePullRequestDrift, getCommitDiff } from './git_drift_analyzer.js';
 import { UniversalAgentWatcher } from './universal_watcher.js';
 import { LiveSessionStreamWatcher } from './live_session_stream.js';
+import { loadProjects, saveProject, setActiveProject } from './project_registry.js';
 
 // Upstream target (default to OpenAI standard endpoint, can be overridden per request or via env)
 const UPSTREAM_BASE_URL = process.env.UPSTREAM_BASE_URL || 'https://api.openai.com';
@@ -271,6 +272,40 @@ let activeLiveWatcher = new LiveSessionStreamWatcher(
   }
 );
 activeLiveWatcher.start();
+
+// Project Management APIs
+fastify.get('/api/projects', async () => {
+  return loadProjects();
+});
+
+fastify.post('/api/projects/switch', async (req) => {
+  const { projectId } = req.body || {};
+  const config = setActiveProject(projectId);
+  const target = config.projects.find(p => p.id === projectId);
+  
+  if (target && target.sessionPath) {
+    if (activeLiveWatcher) activeLiveWatcher.stop();
+    activeLiveWatcher = new LiveSessionStreamWatcher(
+      target.sessionPath,
+      {
+        coreGoals: target.coreGoals || [],
+        allowedPaths: target.allowedPaths || [],
+        forbiddenPaths: target.forbiddenPaths || ['docs/', 'notes/', 'reports/']
+      },
+      (newStep) => broadcastToUI('live_step_added', newStep),
+      (driftAlert) => broadcastToUI('live_drift_alert', driftAlert)
+    );
+    activeLiveWatcher.start();
+    broadcastToUI('project_switched', target);
+  }
+  return { success: true, activeProject: target };
+});
+
+fastify.post('/api/projects', async (req) => {
+  const project = req.body;
+  const config = saveProject(project);
+  return { success: true, config };
+});
 
 fastify.get('/api/live/active-goal', async () => {
   return {

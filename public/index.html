@@ -35,7 +35,15 @@
 
     <!-- Active Stream Controls -->
     <div class="flex items-center gap-6">
-      <div class="flex items-center gap-4 text-xs font-mono text-slate-300">
+      <!-- Project Switcher -->
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-slate-400 font-medium">Active Workspace:</span>
+        <select id="projectSelect" class="bg-slate-800 text-xs font-mono border border-slate-700 text-indigo-300 rounded px-3 py-1.5 focus:border-indigo-500 focus:outline-none">
+          <!-- Populated from API -->
+        </select>
+      </div>
+
+      <div class="flex items-center gap-4 text-xs font-mono text-slate-300 border-l border-slate-800 pl-4">
         <div>Elapsed: <strong id="mDuration" class="text-indigo-400">0.0h</strong></div>
         <div>Total Steps: <strong id="mSteps" class="text-white">0</strong></div>
         <div>In-Scope: <strong id="mInScope" class="text-emerald-400">0</strong></div>
@@ -144,6 +152,35 @@ Select any step from the live timeline to view what the agent executed.
         document.getElementById('activeGoalText').textContent = data.activeGoal;
       }
     }
+
+    // Load available registered projects
+    async function loadProjects() {
+      const res = await fetch('/api/projects');
+      const data = await res.json();
+      const select = document.getElementById('projectSelect');
+      select.innerHTML = '';
+      data.projects.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.name} (${p.agentType})`;
+        if (p.id === data.activeProjectId) opt.selected = true;
+        select.appendChild(opt);
+      });
+    }
+
+    document.getElementById('projectSelect').onchange = async (e) => {
+      const projectId = e.target.value;
+      document.getElementById('timelineContainer').innerHTML = '<div class="text-center text-xs text-slate-500 py-10">Switching project stream...</div>';
+      steps = [];
+      updateMetrics();
+      await fetch('/api/projects/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId })
+      });
+      loadActiveGoal();
+    loadProjects();
+    };
 
     // Connect WebSocket
     const ws = new WebSocket(`ws://${window.location.host}/ws`);
@@ -261,6 +298,7 @@ Select any step from the live timeline to view what the agent executed.
     };
 
     loadActiveGoal();
+    loadProjects();
   </script>
 </body>
 </html>
