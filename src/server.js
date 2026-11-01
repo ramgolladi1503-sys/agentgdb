@@ -65,15 +65,22 @@ fastify.get('/api/sessions/:id/turns', async (req) => {
 
 // Live Local Agent Session Watcher API (Antigravity, Codex, Claude Code, Cursor)
 fastify.post('/api/local/watch', async (req) => {
-  const { sessionPath, coreGoals, allowedPaths, forbiddenPaths } = req.body || {};
+  const { sessionPath, source, coreGoals, allowedPaths, forbiddenPaths } = req.body || {};
   
-  const targetPath = sessionPath || `${process.env.HOME}/.gemini/antigravity/brain/554eb738-91a4-4f63-9ce5-90279b2400b3/.system_generated/logs/transcript.jsonl`;
+  let targetPath = sessionPath;
+  if (!targetPath) {
+    if (source === 'local_codex') {
+      targetPath = `${process.env.HOME}/.codex/sessions/2026/11/01/rollout-2026-11-01T11-11-20-01a195a0-6b5a-71c3-843a-bd3ad57ec0fa.jsonl`;
+    } else {
+      targetPath = `${process.env.HOME}/.gemini/antigravity/brain/554eb738-91a4-4f63-9ce5-90279b2400b3/.system_generated/logs/transcript.jsonl`;
+    }
+  }
   
   const watcher = new UniversalAgentWatcher({
     definedScope: {
-      coreGoals: coreGoals || ['Build local agent drift watcher and time-travel replay engine'],
-      allowedPaths: allowedPaths || [],
-      forbiddenPaths: forbiddenPaths || ['docs/', 'notes/', 'reports/', '.github/']
+      coreGoals: coreGoals || ['PostgreSQL Database Cutover and Production Readiness'],
+      allowedPaths: allowedPaths || ['backend/app/postgres*', 'backend/tests/test_postgres*'],
+      forbiddenPaths: forbiddenPaths || ['docs/', 'notes/', 'reports/', '.github/workflows/', 'mobile/android/']
     }
   });
 

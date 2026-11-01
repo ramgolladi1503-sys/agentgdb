@@ -126,13 +126,14 @@ Select a step from the trajectory timeline to inspect the local uncommitted tool
     let selectedStep = null;
 
     async function replayLocalSession() {
+      const source = document.getElementById('sourceSelect').value;
       const goals = document.getElementById('goalsInput').value.split(',').map(g => g.trim());
       document.getElementById('stepListContainer').innerHTML = '<div class="text-center text-xs text-slate-500 py-10">Streaming local uncommitted transcript...</div>';
 
       const res = await fetch('/api/local/watch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ coreGoals: goals })
+        body: JSON.stringify({ source, coreGoals: goals })
       });
 
       activeTrajectory = await res.json();

@@ -85,28 +85,57 @@ export class UniversalAgentWatcher {
     }
 
     // 2. Codex rollout JSONL format
-    if (raw.type === 'model' || raw.type === 'session_meta' || raw.type === 'response') {
-      const payload = raw.payload || {};
+    const item = raw.payload?.item;
+    if (raw.type === 'event_msg' && item) {
       const toolCalls = [];
-      
-      if (payload.item?.command) {
+      let content = '';
+
+      if (item.type === 'CommandExecution') {
+        const cmdStr = Array.isArray(item.command) ? item.command.join(' ') : (item.command || '');
         toolCalls.push({
           name: 'bash_run',
-          args: { command: payload.item.command },
-          targetPath: payload.item.command
+          args: { command: cmdStr },
+          targetPath: cmdStr
         });
+        content = cmdStr;
+      } else if (item.type === 'FileChange') {
+        const filePath = item.path || item.file || '';
+        toolCalls.push({
+          name: 'edit_file',
+          args: { path: filePath },
+          targetPath: filePath
+        });
+        content = `Edit ${filePath}`;
+      } else if (item.type === 'AgentMessage') {
+        content = item.text || item.message || '';
       }
 
+      if (toolCalls.length > 0 || content) {
+        return {
+          stepIndex: turnIndex,
+          timestamp: raw.timestamp || new Date().toISOString(),
+          source: 'CODEX',
+          type: item.type || raw.type,
+          content,
+          toolCalls,
+          raw
+        };
+      }
+    }
+
+    if (raw.type === 'session_meta') {
       return {
         stepIndex: turnIndex,
         timestamp: raw.timestamp || new Date().toISOString(),
-        source: 'CODEX',
-        type: raw.type,
-        content: payload.message || payload.title || '',
-        toolCalls,
+        source: 'CODEX_INIT',
+        type: 'session_init',
+        content: `Codex Session Initialized: ${raw.payload?.cwd || 'workspace'}`,
+        toolCalls: [],
         raw
       };
     }
+
+    return null;
 
     return null;
   }
