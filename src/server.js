@@ -245,8 +245,9 @@ fastify.post('/api/approvals/:id/decision', async (req, reply) => {
 
 fastify.post('/api/demo/start', async (_req, reply) => {
   // Synthetic fixtures are served in memory only and never written to trace storage.
-  broadcastToUI('live_step_added', { stepIndex: 1, toolName: 'read_file', targetPath: 'src/example.js', content: 'Synthetic demo event', timestamp: Date.now(), activeGoal: 'Inspect a harmless demo project', drift: { isDrift: false } });
-  return reply.send({ success: true, mode: 'synthetic-demo', persisted: false, message: 'Demo event emitted in memory; no project files, external API, or trace database were used.' });
+  const event = { stepIndex: 1, elapsedHours: 0, toolName: 'read_file', targetPath: 'src/example.js', content: 'Synthetic demo event', timestamp: Date.now(), activeGoal: 'Inspect a harmless demo project', drift: { isDrift: false } };
+  broadcastToUI('live_step_added', event);
+  return reply.send({ success: true, mode: 'synthetic-demo', persisted: false, elapsedHours: event.elapsedHours, message: 'Demo event emitted in memory; no project files, external API, or trace database were used.' });
 });
 
 fastify.delete('/api/traces', async (req, reply) => {

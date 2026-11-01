@@ -56,6 +56,7 @@ test('official MCP stdio tool path reads safely and gates a real workspace write
   assert.equal(activation.success, true);
   const demo = await fetch(`http://127.0.0.1:${appPort}/api/demo/start`, { method: 'POST' }).then((response) => response.json());
   assert.equal(demo.persisted, false);
+  assert.equal(demo.elapsedHours, 0);
   assert.equal((await fetch(`http://127.0.0.1:${appPort}/api/sessions`).then((response) => response.json())).length, 0);
   const malformedTranscript = path.join(home, 'malformed.jsonl');
   fs.writeFileSync(malformedTranscript, 'not json at all\n');
