@@ -33,6 +33,14 @@
         </select>
       </div>
 
+      <!-- Branch Selector -->
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-slate-400">Branch:</span>
+        <select id="branchSelect" class="bg-slate-800 text-xs font-mono border border-slate-700 text-indigo-300 rounded px-2 py-1 focus:outline-none focus:border-indigo-500">
+          <option value="main">main</option>
+        </select>
+      </div>
+
       <div class="flex items-center gap-4 text-xs font-mono text-slate-300 border-l border-slate-800 pl-4">
         <div>Total Tokens: <span id="metricTokens" class="text-indigo-400 font-bold">0</span></div>
         <div>Est. Cost: <span id="metricCost" class="text-emerald-400 font-bold">$0.00</span></div>
@@ -148,6 +156,7 @@
 
   <script>
     let activeSession = null;
+    let activeBranch = 'main';
     let selectedTurn = null;
     let turnsData = [];
 
@@ -156,12 +165,23 @@
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       console.log('[AgentGDB Event]:', msg);
-      if (msg.event === 'turn_completed' || msg.event === 'breakpoint_hit') {
+      if (msg.event === 'turn_completed' || msg.event === 'breakpoint_hit' || msg.event === 'fork_created') {
         loadSessions();
         if (activeSession === msg.data.sessionId) {
-          loadTurns(activeSession);
+          loadTurns(activeSession, activeBranch);
         }
       }
+    };
+
+    document.getElementById('branchSelect').onchange = (e) => {
+      activeBranch = e.target.value;
+      loadTurns(activeSession, activeBranch);
+    };
+
+    document.getElementById('sessionSelect').onchange = (e) => {
+      activeSession = e.target.value;
+      activeBranch = 'main';
+      loadTurns(activeSession, activeBranch);
     };
 
     async function loadSessions() {
@@ -181,14 +201,25 @@
       });
       if (!activeSession && sessions.length > 0) {
         activeSession = sessions[0].id;
-        loadTurns(activeSession);
       }
+      select.value = activeSession;
+      loadTurns(activeSession, activeBranch);
     }
 
-    async function loadTurns(sessionId) {
+    async function loadTurns(sessionId, branch = 'main') {
       if (!sessionId) return;
-      const res = await fetch(`/api/sessions/${sessionId}/turns`);
+      const res = await fetch(`/api/sessions/${sessionId}/turns?branch=${branch}`);
       turnsData = await res.json();
+
+      // Update available branches in branchSelect
+      const branchSelect = document.getElementById('branchSelect');
+      const currentBranches = ['main'];
+      if (sessionId === 'PR-204-Codex-Gate3-Verification') {
+        currentBranches.push('fork_gate3_rehearsal_approved');
+      }
+      branchSelect.innerHTML = currentBranches.map(b => 
+        `<option value="${b}" ${b === branch ? 'selected' : ''}>${b}</option>`
+      ).join('');
       
       const container = document.getElementById('timelineContainer');
       container.innerHTML = '';
