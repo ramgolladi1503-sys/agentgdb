@@ -3,7 +3,7 @@ import path from 'path';
 
 /** Stores only projects explicitly registered by the operator. */
 
-const CONFIG_PATH = path.join(process.env.HOME || '.', '.agentgdb', 'projects.json');
+const CONFIG_PATH = path.join(process.env.HOME || process.env.USERPROFILE || '.', '.agentgdb', 'projects.json');
 const RESTRICTIVE_MODES = process.platform !== 'win32';
 
 function secureConfigDirectory() {

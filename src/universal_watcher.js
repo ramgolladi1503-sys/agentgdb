@@ -29,10 +29,13 @@ export class UniversalAgentWatcher {
     });
 
     const parsedEvents = [];
+    const parseErrors = [];
     let turnCounter = 0;
     let sessionStartTime = null;
+    let lineNumber = 0;
 
     for await (const line of rl) {
+      lineNumber++;
       if (!line.trim()) continue;
       try {
         const raw = JSON.parse(line);
@@ -50,11 +53,11 @@ export class UniversalAgentWatcher {
           parsedEvents.push(unified);
         }
       } catch (err) {
-        // Skip malformed lines
+        parseErrors.push({ line: lineNumber, message: err instanceof SyntaxError ? 'Invalid JSON line' : 'Transcript event could not be interpreted' });
       }
     }
 
-    return this.evaluateTrajectoryDrift(parsedEvents, this.definedScope);
+    return { ...this.evaluateTrajectoryDrift(parsedEvents, this.definedScope), parseErrors };
   }
 
   // Normalizes Antigravity, Codex, or generic agent formats into standard format

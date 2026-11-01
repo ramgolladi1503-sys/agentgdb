@@ -4,11 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgentGDB | Live Autonomous Agent Drift Monitor</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="/tailwind.css" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; background-color: #06090e; color: #e2e8f0; }
-    pre, code, .mono { font-family: 'JetBrains Mono', monospace; }
+    body { background-color: #06090e; color: #e2e8f0; }
     .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
     .scrollbar-thin::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
     @keyframes pulse-ring {
@@ -72,6 +70,31 @@
       <span class="w-2 h-2 rounded-full bg-slate-500"></span> Observer inactive
     </div>
   </div>
+
+  <section class="border-b border-slate-800 bg-slate-900 px-6 py-3 flex items-center gap-3 shrink-0">
+    <strong class="text-xs text-white">Getting started</strong>
+    <span class="text-xs text-slate-400">Try a private synthetic event, or register a workspace with an explicit path allowlist.</span>
+    <button id="demoStart" class="text-xs px-3 py-1.5 rounded bg-indigo-700 text-white">Run local demo</button>
+    <form id="projectSetup" class="ml-auto flex gap-2 items-center">
+      <input name="id" required placeholder="workspace id" class="w-32 text-xs px-2 py-1.5 rounded bg-slate-950 border border-slate-700">
+      <input name="name" required placeholder="workspace name" class="w-36 text-xs px-2 py-1.5 rounded bg-slate-950 border border-slate-700">
+      <input name="workspacePath" required placeholder="absolute workspace path" class="w-56 text-xs px-2 py-1.5 rounded bg-slate-950 border border-slate-700">
+      <input name="allowedPaths" required placeholder="allowed paths (e.g. src/**)" title="Comma separated relative path patterns" class="w-56 text-xs px-2 py-1.5 rounded bg-slate-950 border border-slate-700">
+      <input name="allowedCommands" placeholder='commands JSON array' title='Exact JSON identities, e.g. ["npm","test"] serialized as one JSON string' class="w-40 text-xs px-2 py-1.5 rounded bg-slate-950 border border-slate-700">
+      <button class="text-xs px-3 py-1.5 rounded bg-slate-700 text-white">Register</button>
+    </form>
+    <form id="transcriptSetup" class="flex gap-2 items-center">
+      <input id="transcriptPath" required placeholder="absolute transcript path (.jsonl)" class="w-64 text-xs px-2 py-1.5 rounded bg-slate-950 border border-slate-700">
+      <button class="text-xs px-3 py-1.5 rounded bg-slate-700 text-white">Observe transcript</button>
+    </form>
+    <span id="setupStatus" role="status" class="text-xs text-amber-300"></span>
+  </section>
+
+  <section id="approvalPanel" class="hidden border-b border-amber-700 bg-amber-950/40 px-6 py-3 shrink-0">
+    <div class="flex items-center gap-3 mb-2"><h2 class="text-xs font-bold text-amber-200">Mutating actions awaiting explicit approval</h2><label class="text-xs text-amber-100">Operator token <input id="approvalToken" type="password" autocomplete="off" class="ml-1 px-2 py-1 rounded bg-slate-950 border border-amber-700" /></label><span id="approvalStatus" role="status" class="text-xs text-amber-100">Token is required to decide.</span></div>
+    <div id="approvalList" class="space-y-2"></div>
+    <details class="mt-3"><summary class="cursor-pointer text-xs text-amber-200">Recent approval and execution records</summary><div id="approvalHistory" class="mt-2 space-y-1"></div></details>
+  </section>
 
   <!-- Real-Time Drift Alert Banner (Triggered immediately on drift) -->
   <div id="liveDriftAlertBox" class="bg-rose-950/80 border-b border-rose-600/70 px-6 py-3.5 hidden shrink-0 drift-alert-active">
@@ -144,6 +167,86 @@ Select any step from the live timeline to view what the agent executed.
     let isPaused = false;
     let selectedStep = null;
 
+    async function loadApprovals() {
+      const response = await fetch('/api/approvals');
+      if (!response.ok) return;
+      const data = await response.json();
+      const tokenInput = document.getElementById('approvalToken');
+      tokenInput.value = sessionStorage.getItem('agentgdb-approval-token') || '';
+      const panel = document.getElementById('approvalPanel');
+      const list = document.getElementById('approvalList');
+      list.replaceChildren();
+      const recent = data.recent || [];
+      panel.classList.toggle('hidden', data.approvals.length === 0 && recent.length === 0);
+      for (const approval of data.approvals) {
+        const row = document.createElement('div');
+        row.className = 'flex items-start gap-3 text-xs text-slate-100';
+        const details = document.createElement('pre');
+        details.className = 'flex-1 whitespace-pre-wrap';
+        details.textContent = `${approval.action.name} | risk ${approval.risk}\n${JSON.stringify(approval.action, null, 2)}`;
+        row.append(details);
+        for (const decision of ['APPROVED', 'DENIED']) {
+          const button = document.createElement('button');
+          button.className = decision === 'APPROVED' ? 'px-3 py-1 bg-emerald-700 rounded' : 'px-3 py-1 bg-rose-700 rounded';
+          button.textContent = decision;
+          button.onclick = async () => {
+            const token = tokenInput.value.trim();
+            if (!token) { document.getElementById('approvalStatus').textContent = 'Enter the one-run token printed by the AgentGDB process.'; return; }
+            sessionStorage.setItem('agentgdb-approval-token', token);
+            const result = await fetch(`/api/approvals/${encodeURIComponent(approval.id)}/decision`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-agentgdb-approval-token': token }, body: JSON.stringify({ decision }) });
+            document.getElementById('approvalStatus').textContent = result.ok ? 'Decision recorded.' : `Decision failed: ${(await result.json()).error}`;
+            loadApprovals();
+          };
+          row.append(button);
+        }
+        list.append(row);
+      }
+      const history = document.getElementById('approvalHistory');
+      history.replaceChildren();
+      for (const item of recent) {
+        const entry = document.createElement('div');
+        entry.className = 'text-[11px] text-slate-300 font-mono border-t border-slate-800 pt-1';
+        entry.textContent = `${item.status} / ${item.execution_status} / ${item.action.name || 'action'} / ${new Date(item.created_at).toLocaleString()}${item.decision_reason ? ` / ${item.decision_reason}` : ''}`;
+        history.append(entry);
+      }
+    }
+
+    document.getElementById('demoStart').onclick = async () => {
+      const response = await fetch('/api/demo/start', { method: 'POST' });
+      const data = await response.json();
+      document.getElementById('setupStatus').textContent = data.message;
+    };
+    document.getElementById('projectSetup').onsubmit = async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const project = Object.fromEntries(form.entries());
+      project.allowedPaths = project.allowedPaths.split(',').map((value) => value.trim()).filter(Boolean);
+      try { project.allowedCommands = project.allowedCommands.trim() ? JSON.parse(project.allowedCommands) : []; }
+      catch { document.getElementById('setupStatus').textContent = 'Allowed commands must be a valid JSON array of exact command identities.'; return; }
+      if (!Array.isArray(project.allowedCommands) || project.allowedCommands.some((value) => typeof value !== 'string')) {
+        document.getElementById('setupStatus').textContent = 'Allowed commands must be an array of strings.';
+        return;
+      }
+      const response = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(project) });
+      const data = await response.json();
+      document.getElementById('setupStatus').textContent = data.success ? 'Workspace registered. Select it to activate its policy.' : data.error;
+      if (data.success) loadProjects();
+    };
+    document.getElementById('transcriptSetup').onsubmit = async (event) => {
+      event.preventDefault();
+      const status = document.getElementById('setupStatus');
+      status.textContent = 'Connecting to transcript…';
+      try {
+        const response = await fetch('/api/local/watch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionPath: document.getElementById('transcriptPath').value.trim() }) });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || `Transcript request failed (${response.status})`);
+        status.textContent = `Transcript connected: parsed ${data.totalSteps} events${data.parseErrorCount ? `; skipped ${data.parseErrorCount} malformed or unsupported lines` : ''}. Observer and drift status are advisory.`;
+        loadActiveGoal();
+      } catch (error) {
+        status.textContent = `Transcript error: ${error.message}`;
+      }
+    };
+
     // Load active goal immediately
     async function loadActiveGoal() {
       const res = await fetch('/api/live/active-goal');
@@ -169,6 +272,8 @@ Select any step from the live timeline to view what the agent executed.
         if (p.id === data.activeProjectId) opt.selected = true;
         select.appendChild(opt);
       });
+      document.getElementById('projectSelect').disabled = data.projects.length === 0;
+      if (data.projects.length === 0) document.getElementById('setupStatus').textContent = 'No enforcement policy is active. Register and select a workspace before proxy tool calls are allowed.';
     }
 
     document.getElementById('projectSelect').onchange = async (e) => {
@@ -208,6 +313,7 @@ Select any step from the live timeline to view what the agent executed.
         const alert = msg.data;
         triggerDriftAlert(alert);
       }
+      if (msg.event === 'approval_pending' || msg.event === 'approval_decided') loadApprovals();
     };
 
     function triggerDriftAlert(alert) {
@@ -311,6 +417,8 @@ Select any step from the live timeline to view what the agent executed.
 
     loadActiveGoal();
     loadProjects();
+    loadApprovals();
+    setInterval(loadApprovals, 1500);
   </script>
 </body>
 </html>

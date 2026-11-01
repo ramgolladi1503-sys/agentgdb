@@ -15,7 +15,7 @@ test('VFS rejects traversal and symlink escapes', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentgdb-vfs-'));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agentgdb-out-'));
   t.after(() => { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); });
-  fs.symlinkSync(outside, path.join(root, 'external'));
+  fs.symlinkSync(outside, path.join(root, 'external'), process.platform === 'win32' ? 'junction' : 'dir');
   const vfs = new VirtualOverlayFilesystem(root);
   assert.throws(() => vfs.writeFile('../escape.txt', 'bad'), /traversal is not allowed/);
   assert.throws(() => vfs.writeFile('external/escape.txt', 'bad'), /symlink outside/);
@@ -70,15 +70,15 @@ test('server safety defaults are loopback, token-gated remotely, and payload cap
   const server = fs.readFileSync(path.join(__dirname, '../../src/server.js'), 'utf8');
   assert.match(server, /process\.env\.HOST \|\| '127\.0\.0\.1'/);
   assert.match(server, /AGENTGDB_AUTH_TOKEN is required when HOST is not loopback/);
-  assert.match(server, /TRACE_CAPTURE \? JSON\.stringify\(req\.body\) : null/);
-  assert.match(server, /TRACE_CAPTURE \? JSON\.stringify\(responseJson\) : null/);
+  assert.match(server, /TRACE_CAPTURE \? JSON\.stringify\(redactSensitive\(req\.body\)\) : null/);
+  assert.match(server, /TRACE_CAPTURE \? JSON\.stringify\(redactSensitive\(responseJson\)\) : null/);
   assert.match(server, /timingSafeEqual\(supplied, expected\)/);
   assert.match(server, /tool_calls: null/);
   assert.match(server, /sessionPath must be an explicit absolute path/);
   const scopePolicy = fs.readFileSync(path.join(__dirname, '../../src/security/scope_policy.js'), 'utf8');
   assert.match(scopePolicy, /No active scope policy is configured/);
   assert.match(scopePolicy, /No explicit allowlist is configured/);
-  assert.match(scopePolicy, /enforcement: 'ADVISORY_ONLY'/);
+  assert.match(scopePolicy, /enforcement: 'PROXY_TOOL_CALL_ONLY'/);
   const liveWatcher = fs.readFileSync(path.join(__dirname, '../../src/live_session_stream.js'), 'utf8');
   assert.match(liveWatcher, /this\.driftStatus = driftEvaluation\.isDrift \? 'DRIFT_DETECTED' : 'IN_SCOPE'/);
 });
