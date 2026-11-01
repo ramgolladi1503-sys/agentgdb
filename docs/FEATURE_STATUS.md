@@ -24,5 +24,6 @@ Status reflects a source-level review as of 2026-11-02, not independent certific
 | Virtual filesystem | Isolated module | Not wired into agent I/O; path containment is checked, but it is not a sandbox. |
 | Cryptographic attestation / PR evidence | Not suitable for trust claims | Current helper does not establish trusted identity or prove that changes were in scope. |
 | 1,000-developer evaluation | Withdrawn | Former report was generated from synthetic random scores and fabricated feedback. |
+| Production release gate | Defined locally; BLOCKED | `docs/RELEASE_GATE.md` lists required evidence. Repository branch protection is not configured or verified; cross-platform CI, real-agent action run, independent security review, and user pilot remain outstanding. |
 
 Do not upgrade these statuses based on unit tests alone. Any move to broader “enforced” or “production-ready” requires end-to-end tests through actual supported agent clients, adversarial path/argument coverage, cross-platform CI results, and an independent security review.
