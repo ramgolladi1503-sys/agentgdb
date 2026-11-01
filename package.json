@@ -1,0 +1,24 @@
+{
+  "name": "agentgdb",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Interactive Time-Travel Debugger and Replay Proxy for AI Agent Loops",
+  "main": "src/server.js",
+  "bin": {
+    "agentgdb": "./bin/agentgdb.js"
+  },
+  "scripts": {
+    "start": "node src/server.js"
+  },,
+  "dependencies": {
+    "@fastify/cors": "^11.3.1",
+    "@fastify/static": "^10.1.8",
+    "@fastify/websocket": "^11.3.6",
+    "better-sqlite3": "^13.0.3",
+    "chalk": "^6.0.1",
+    "dotenv": "^18.0.9",
+    "fastify": "^5.12.7",
+    "sqlite3": "^6.0.1",
+    "ws": "^8.22.1"
+  }
+}
