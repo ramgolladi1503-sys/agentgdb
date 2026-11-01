@@ -1,5 +1,5 @@
 // Simulates a 5-step autonomous coding agent loop talking through AgentGDB proxy
-const PROXY_URL = 'http://localhost:8080/v1/chat/completions';
+const PROXY_URL = 'http://localhost:9099/v1/chat/completions';
 const SESSION_ID = 'demo-coding-agent-01';
 
 async function callAgentTurn(turnIndex, userPrompt, previousToolResult = null) {

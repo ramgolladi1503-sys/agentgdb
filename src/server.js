@@ -28,10 +28,6 @@ import {
 } from './db.js';
 import { replayManager } from './replayer.js';
 
-const fastify = Fastify({ logger: false });
-await fastify.register(cors, { origin: '*' });
-await fastify.register(websocket);
-
 // Upstream target (default to OpenAI standard endpoint, can be overridden per request or via env)
 const UPSTREAM_BASE_URL = process.env.UPSTREAM_BASE_URL || 'https://api.openai.com';
 
@@ -212,7 +208,7 @@ fastify.post('/v1/chat/completions', async (req, reply) => {
   }
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 9099;
 fastify.listen({ port: PORT, host: '0.0.0.0' }, (err, address) => {
   if (err) {
     console.error(err);
