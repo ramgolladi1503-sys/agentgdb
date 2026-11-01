@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentGDB | Scope Drift Replay & Code Diff Inspector</title>
+  <title>AgentGDB | Local Agent Time-Travel & Drift Watcher</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; background-color: #080c14; color: #e2e8f0; }
+    body { font-family: 'Inter', sans-serif; background-color: #070a10; color: #e2e8f0; }
     pre, code, .mono { font-family: 'JetBrains Mono', monospace; }
     .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
     .scrollbar-thin::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
@@ -15,101 +15,105 @@
 </head>
 <body class="h-screen flex flex-col overflow-hidden">
 
-  <!-- Top Navigation & PR Target Header -->
+  <!-- Main App Header -->
   <header class="h-16 border-b border-slate-800 bg-slate-900/80 px-6 flex items-center justify-between shrink-0">
     <div class="flex items-center gap-4">
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2.5">
         <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
         <span class="font-bold tracking-tight text-lg text-white">Agent<span class="text-indigo-400">GDB</span></span>
       </div>
       <span class="text-xs bg-indigo-950/80 border border-indigo-700/60 text-indigo-300 px-2.5 py-1 rounded font-mono">
-        Scope Drift & Code Diff Replay
+        Local Autonomous Loop Time-Machine (240h Replayer)
       </span>
     </div>
 
-    <!-- Active PR & Scope Selection Form -->
+    <!-- Mode Selector & Scope Setup -->
     <div class="flex items-center gap-4">
       <div class="flex items-center gap-2">
-        <span class="text-xs text-slate-400 font-medium">Target PR:</span>
-        <select id="prSelector" class="bg-slate-800 text-xs font-mono border border-slate-700 text-white rounded px-3 py-1.5 focus:border-indigo-500 focus:outline-none">
-          <option value="204">PR #204: Postgres Authority & Cutover</option>
-          <option value="207" selected>PR #207: Android Approval App Snapshot</option>
+        <span class="text-xs text-slate-400 font-medium">Session Source:</span>
+        <select id="sourceSelect" class="bg-slate-800 text-xs font-mono border border-slate-700 text-white rounded px-3 py-1.5 focus:border-indigo-500 focus:outline-none">
+          <option value="local_antigravity">Active Local Agent (Antigravity Brain)</option>
+          <option value="local_codex">Local Codex Rollout (240h Trajectory)</option>
+          <option value="custom_file">Custom Local JSONL Transcript</option>
         </select>
       </div>
 
       <div class="flex items-center gap-2">
-        <span class="text-xs text-slate-400 font-medium">Declared Scope:</span>
-        <input id="scopeInput" type="text" value="Android Approval App Snapshot" class="bg-slate-800 border border-slate-700 rounded text-xs px-3 py-1.5 text-slate-200 w-80 font-mono focus:border-indigo-500 focus:outline-none">
+        <span class="text-xs text-slate-400 font-medium">Target Goals:</span>
+        <input id="goalsInput" type="text" value="Build Local Drift Engine, Scope Replay, Universal Watcher" class="bg-slate-800 border border-slate-700 rounded text-xs px-3 py-1.5 text-slate-200 w-80 font-mono focus:border-indigo-500 focus:outline-none" placeholder="Enter target 1-3 core goals">
       </div>
 
-      <button id="btnAnalyze" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded shadow transition flex items-center gap-1.5">
-        <span>🔄</span> Replay Drift
+      <button id="btnReplay" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded shadow transition flex items-center gap-1.5">
+        <span>⏱️</span> Time-Travel Replay
       </button>
     </div>
   </header>
 
-  <!-- Metrics Drift Banner -->
+  <!-- Real-Time Metrics & 240h Time Ribbon -->
   <div class="bg-slate-900/40 border-b border-slate-800 px-6 py-2.5 flex items-center justify-between text-xs font-mono shrink-0">
     <div class="flex items-center gap-6">
-      <div>Total Commits: <strong id="mTotal" class="text-white">0</strong></div>
-      <div>In-Scope Code: <strong id="mInScope" class="text-emerald-400">0</strong></div>
-      <div>Docs Journaling Drift: <strong id="mDocsDrift" class="text-amber-400">0</strong></div>
-      <div>CI/Infra Expansion: <strong id="mCiDrift" class="text-rose-400">0</strong></div>
+      <div>Total Lifetime: <strong id="mDuration" class="text-indigo-400">0.0 hrs</strong></div>
+      <div>Executed Steps: <strong id="mSteps" class="text-white">0</strong></div>
+      <div>In-Scope Progress: <strong id="mInScope" class="text-emerald-400">0</strong></div>
+      <div>Detected Drifts: <strong id="mDrifts" class="text-rose-400">0</strong></div>
     </div>
-    <div class="flex items-center gap-2">
-      <span class="text-slate-400">Overall Agent Drift Index:</span>
-      <span id="mDriftBadge" class="px-2 py-0.5 rounded font-bold bg-amber-950 text-amber-400 border border-amber-800">0% DRIFT</span>
+    <div class="flex items-center gap-3">
+      <span class="text-slate-400">Current Autonomous Health:</span>
+      <span id="mHealthBadge" class="px-2.5 py-0.5 rounded font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
+        100% HEALTHY (ON TRACK)
+      </span>
     </div>
   </div>
 
-  <!-- Main Replay View -->
+  <!-- Replay View (Timeline + Hour Slider + Action Details) -->
   <div class="flex-1 flex overflow-hidden">
 
-    <!-- Left Column: Step-by-Step Commit & Drift Timeline -->
-    <aside class="w-[450px] border-r border-slate-800 bg-slate-950 flex flex-col shrink-0">
+    <!-- Left Timeline Column -->
+    <aside class="w-[480px] border-r border-slate-800 bg-slate-950 flex flex-col shrink-0">
       <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
-        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Execution Commits & Drift Detection</span>
-        <span id="commitCountLabel" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">0 steps</span>
+        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Turn-by-Turn Local Trajectory</span>
+        <span id="stepCounterBadge" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">0 steps</span>
       </div>
 
-      <div id="commitListContainer" class="flex-1 overflow-y-auto p-3 space-y-2.5 scrollbar-thin">
-        <div class="text-center text-xs text-slate-500 py-10">Loading commit trajectory...</div>
+      <!-- Steps List -->
+      <div id="stepListContainer" class="flex-1 overflow-y-auto p-3 space-y-2.5 scrollbar-thin">
+        <div class="text-center text-xs text-slate-500 py-10">Initializing local trajectory watcher...</div>
       </div>
     </aside>
 
-    <!-- Right Column: Code Diff & Scope Diff Inspector -->
-    <main class="flex-1 flex flex-col bg-slate-900/20 overflow-hidden">
-      
-      <!-- Diff Top Details -->
+    <!-- Right Inspector & Code/Tool Delta Panel -->
+    <main class="flex-1 flex flex-col bg-slate-900/10 overflow-hidden">
+
+      <!-- Header of selected step -->
       <div class="h-12 border-b border-slate-800 bg-slate-900/60 px-6 flex items-center justify-between shrink-0">
         <div class="flex items-center gap-3">
-          <span id="activeCommitHash" class="font-mono text-xs font-bold text-indigo-400">SELECT COMMIT</span>
-          <span id="activeCommitTitle" class="text-xs text-slate-300 truncate max-w-xl">Click on a commit from the replay timeline to inspect its code changes</span>
+          <span id="selectedStepBadge" class="font-mono text-xs font-bold text-indigo-400">Step #0</span>
+          <span id="selectedStepTime" class="text-xs text-slate-400 font-mono">Elapsed: 0.0h</span>
         </div>
-        <div id="activeCommitBadge" class="text-[11px] font-mono px-2 py-0.5 rounded hidden">
-          <!-- Drift badge here -->
+        <div id="selectedStepDriftTag" class="text-[11px] font-mono px-2 py-0.5 rounded hidden">
+          <!-- Tag -->
         </div>
       </div>
 
-      <!-- Drift Explanation Card -->
-      <div id="driftExplanationBox" class="p-4 bg-slate-900/70 border-b border-slate-800 hidden">
+      <!-- Drift Callout Banner (Appears when step drifted) -->
+      <div id="driftAlertCard" class="p-4 bg-rose-950/30 border-b border-rose-900/50 hidden">
         <div class="flex items-start gap-3">
-          <span id="driftIcon" class="text-lg">⚠️</span>
+          <span class="text-xl">🚨</span>
           <div>
-            <div id="driftCategoryTitle" class="text-xs font-bold text-amber-400 uppercase tracking-wide">Drift Detected</div>
-            <div id="driftExplanationText" class="text-xs text-slate-300 mt-0.5">Explanation will appear here.</div>
+            <div id="driftAlertTitle" class="text-xs font-bold text-rose-400 uppercase tracking-wide">Drift Triggered</div>
+            <div id="driftAlertBody" class="text-xs text-slate-300 mt-1 leading-relaxed">Explanation</div>
           </div>
         </div>
       </div>
 
-      <!-- Real Code Diff Display -->
-      <div class="flex-1 flex flex-col overflow-hidden p-4">
+      <!-- Action Payload & Tool Calls View -->
+      <div class="flex-1 flex flex-col p-4 overflow-hidden">
         <div class="flex justify-between items-center mb-2">
-          <span class="text-xs font-semibold text-slate-400">Git Patch & Modified Files</span>
-          <span id="filesCountBadge" class="text-[10px] text-slate-500 font-mono">0 files touched</span>
+          <span class="text-xs font-semibold text-slate-400">Tool Calls & Working Memory Delta</span>
+          <span id="actionTypeTag" class="text-[10px] text-slate-500 font-mono"></span>
         </div>
-        <pre id="codeDiffView" class="flex-1 bg-slate-950 border border-slate-800 rounded p-4 text-xs font-mono text-slate-300 overflow-auto scrollbar-thin leading-relaxed">
-Select a commit to view the exact code diff.
+        <pre id="payloadViewer" class="flex-1 bg-slate-950 border border-slate-800 rounded p-4 text-xs font-mono text-slate-300 overflow-auto scrollbar-thin leading-relaxed">
+Select a step from the trajectory timeline to inspect the local uncommitted tool calls and file changes.
         </pre>
       </div>
 
@@ -118,134 +122,119 @@ Select a commit to view the exact code diff.
   </div>
 
   <script>
-    let activeData = null;
-    let selectedCommit = null;
+    let activeTrajectory = null;
+    let selectedStep = null;
 
-    async function fetchDrift(prNumber, scope) {
-      document.getElementById('commitListContainer').innerHTML = '<div class="text-center text-xs text-slate-500 py-10">Replaying trajectory from git repository...</div>';
-      
-      const res = await fetch(`/api/pr/drift?pr=${prNumber}&scope=${encodeURIComponent(scope)}`);
-      activeData = await res.json();
+    async function replayLocalSession() {
+      const goals = document.getElementById('goalsInput').value.split(',').map(g => g.trim());
+      document.getElementById('stepListContainer').innerHTML = '<div class="text-center text-xs text-slate-500 py-10">Streaming local uncommitted transcript...</div>';
 
-      // Render metrics
-      document.getElementById('mTotal').textContent = activeData.totalCommits;
-      document.getElementById('mInScope').textContent = activeData.metrics.inScopeCount;
-      document.getElementById('mDocsDrift').textContent = activeData.metrics.docsDriftCount;
-      document.getElementById('mCiDrift').textContent = activeData.metrics.ciDriftCount || activeData.metrics.expansionCount || 0;
-      
-      const driftPercent = activeData.metrics.driftPercentage;
-      const driftBadge = document.getElementById('mDriftBadge');
-      driftBadge.textContent = `${driftPercent}% DRIFT INDEX`;
-      if (driftPercent > 50) {
-        driftBadge.className = 'px-2 py-0.5 rounded font-bold bg-rose-950 text-rose-400 border border-rose-800';
-      } else if (driftPercent > 20) {
-        driftBadge.className = 'px-2 py-0.5 rounded font-bold bg-amber-950 text-amber-400 border border-amber-800';
+      const res = await fetch('/api/local/watch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coreGoals: goals })
+      });
+
+      activeTrajectory = await res.json();
+
+      // Update banner metrics
+      document.getElementById('mDuration').textContent = `${activeTrajectory.elapsedHours} hrs`;
+      document.getElementById('mSteps').textContent = activeTrajectory.totalSteps;
+      document.getElementById('mInScope').textContent = activeTrajectory.metrics.inScopeSteps;
+      document.getElementById('mDrifts').textContent = activeTrajectory.metrics.totalDriftSteps;
+
+      const healthBadge = document.getElementById('mHealthBadge');
+      const driftPercent = activeTrajectory.metrics.driftPercentage;
+      healthBadge.textContent = `${100 - driftPercent}% HEALTH (${activeTrajectory.metrics.status})`;
+
+      if (activeTrajectory.metrics.status === 'CRITICAL_DRIFT') {
+        healthBadge.className = 'px-2.5 py-0.5 rounded font-bold bg-rose-950 text-rose-400 border border-rose-800';
+      } else if (activeTrajectory.metrics.status === 'MODERATE_DRIFT') {
+        healthBadge.className = 'px-2.5 py-0.5 rounded font-bold bg-amber-950 text-amber-400 border border-amber-800';
       } else {
-        driftBadge.className = 'px-2 py-0.5 rounded font-bold bg-emerald-950 text-emerald-400 border border-emerald-800';
+        healthBadge.className = 'px-2.5 py-0.5 rounded font-bold bg-emerald-950 text-emerald-400 border border-emerald-800';
       }
 
-      document.getElementById('commitCountLabel').textContent = `${activeData.commits.length} steps`;
+      document.getElementById('stepCounterBadge').textContent = `${activeTrajectory.totalSteps} steps`;
 
-      // Render timeline list
-      const container = document.getElementById('commitListContainer');
+      // Render steps
+      const container = document.getElementById('stepListContainer');
       container.innerHTML = '';
 
-      activeData.commits.forEach((c) => {
+      activeTrajectory.timeline.forEach((step) => {
         const item = document.createElement('div');
-        const isDrift = c.driftCategory !== 'IN_SCOPE';
-        
+        const isDrift = !step.scopeBound;
+
         let badgeColor = 'bg-emerald-950 text-emerald-400 border-emerald-800';
         let badgeText = 'IN SCOPE';
-        if (c.driftCategory === 'DOCS_JOURNALING_DRIFT') {
+        if (step.driftCategory === 'DOCS_JOURNALING_DRIFT') {
           badgeColor = 'bg-amber-950 text-amber-400 border-amber-800';
           badgeText = 'DOCS DRIFT';
-        } else if (c.driftCategory === 'CI_WORKFLOW_DRIFT' || c.driftCategory === 'SCOPE_EXPANSION_DRIFT') {
+        } else if (step.driftCategory === 'BOUNDARY_EXPANSION_DRIFT') {
           badgeColor = 'bg-rose-950 text-rose-400 border-rose-800';
-          badgeText = 'CI/INFRA DRIFT';
-        } else if (c.driftCategory === 'STALLED_EVIDENCE_LOOP') {
+          badgeText = 'SCOPE CREEP';
+        } else if (step.driftCategory === 'ZERO_PROGRESS_STAGNATION') {
           badgeColor = 'bg-purple-950 text-purple-400 border-purple-800';
-          badgeText = 'STALLED LOOP';
+          badgeText = 'STAGNATION';
         }
 
+        const toolName = step.toolCalls.length > 0 ? step.toolCalls[0].name : (step.type || 'Thinking');
+        const target = step.touchedPaths.length > 0 ? step.touchedPaths[0] : '';
+
         item.className = `p-3 rounded border cursor-pointer transition ${
-          selectedCommit && selectedCommit.commitHash === c.commitHash
+          selectedStep && selectedStep.stepIndex === step.stepIndex
             ? 'bg-indigo-950/40 border-indigo-500'
-            : (isDrift ? 'bg-slate-900/60 border-amber-900/40 hover:border-amber-700' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700')
+            : (isDrift ? 'bg-slate-900/80 border-rose-950 hover:border-rose-700' : 'bg-slate-900/30 border-slate-800 hover:border-slate-700')
         }`;
 
         item.innerHTML = `
           <div class="flex items-center justify-between text-xs mb-1">
-            <span class="font-mono font-bold text-slate-300">#${c.stepIndex} [${c.commitHash}]</span>
+            <span class="font-mono font-bold text-slate-300">#${step.stepIndex} [${toolName}]</span>
             <span class="text-[10px] font-mono px-1.5 py-0.5 rounded border ${badgeColor}">${badgeText}</span>
           </div>
-          <div class="text-xs font-medium text-slate-200 line-clamp-2 mb-1.5">${c.title}</div>
-          <div class="flex items-center justify-between text-[10px] font-mono text-slate-400">
-            <span>${c.changedFilesCount} file(s) modified</span>
-            <span>${c.date}</span>
+          <div class="text-[11px] font-mono text-slate-400 truncate mb-1">${target || step.content.slice(0, 80) || 'Action step'}</div>
+          <div class="flex items-center justify-between text-[10px] font-mono text-slate-500">
+            <span>+${step.elapsedHours}h mark</span>
+            <span>${step.toolCalls.length} tool call(s)</span>
           </div>
         `;
 
-        item.onclick = () => selectCommit(c);
+        item.onclick = () => selectStep(step);
         container.appendChild(item);
       });
 
-      if (activeData.commits.length > 0) {
-        selectCommit(activeData.commits[0]);
+      if (activeTrajectory.timeline.length > 0) {
+        selectStep(activeTrajectory.timeline[activeTrajectory.timeline.length - 1]);
       }
     }
 
-    async function selectCommit(c) {
-      selectedCommit = c;
-      document.getElementById('activeCommitHash').textContent = `Commit [${c.commitHash}]`;
-      document.getElementById('activeCommitTitle').textContent = c.title;
+    function selectStep(step) {
+      selectedStep = step;
+      document.getElementById('selectedStepBadge').textContent = `Step #${step.stepIndex} (${step.toolCalls[0]?.name || step.type})`;
+      document.getElementById('selectedStepTime').textContent = `Timeline Marker: +${step.elapsedHours} hrs`;
 
-      const badge = document.getElementById('activeCommitBadge');
-      badge.classList.remove('hidden');
-      
-      const explainBox = document.getElementById('driftExplanationBox');
-      const isDrift = c.driftCategory !== 'IN_SCOPE';
+      const alertCard = document.getElementById('driftAlertCard');
+      const tag = document.getElementById('selectedStepDriftTag');
+      tag.classList.remove('hidden');
 
-      if (isDrift) {
-        explainBox.classList.remove('hidden');
-        document.getElementById('driftCategoryTitle').textContent = c.driftCategory.replace(/_/g, ' ');
-        document.getElementById('driftExplanationText').textContent = c.driftReason;
-        badge.textContent = 'DRIFT DETECTED';
-        badge.className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800';
+      if (!step.scopeBound) {
+        alertCard.classList.remove('hidden');
+        document.getElementById('driftAlertTitle').textContent = step.driftCategory.replace(/_/g, ' ');
+        document.getElementById('driftAlertBody').textContent = step.driftReason;
+        tag.textContent = 'DRIFT DETECTED';
+        tag.className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800';
       } else {
-        explainBox.classList.add('hidden');
-        badge.textContent = 'ALIGNED WITH SCOPE';
-        badge.className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800';
+        alertCard.classList.add('hidden');
+        tag.textContent = 'IN SCOPE';
+        tag.className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800';
       }
 
-      document.getElementById('filesCountBadge').textContent = `${c.changedFilesCount} files modified`;
-
-      // Fetch full diff from backend
-      const diffContainer = document.getElementById('codeDiffView');
-      diffContainer.textContent = 'Loading code diff...';
-
-      const res = await fetch(`/api/pr/commit-diff?hash=${c.fullHash}`);
-      const data = await res.json();
-      diffContainer.textContent = data.diff || c.statSummary;
+      document.getElementById('actionTypeTag').textContent = `${step.source} • ${step.type}`;
+      document.getElementById('payloadViewer').textContent = JSON.stringify(step.toolCalls.length > 0 ? step.toolCalls : step.raw, null, 2);
     }
 
-    document.getElementById('btnAnalyze').onclick = () => {
-      const pr = document.getElementById('prSelector').value;
-      const scope = document.getElementById('scopeInput').value;
-      fetchDrift(pr, scope);
-    };
-
-    document.getElementById('prSelector').onchange = (e) => {
-      const pr = e.target.value;
-      if (pr === '204') {
-        document.getElementById('scopeInput').value = 'PostgreSQL Database Migration and Production Readiness Cutover';
-      } else {
-        document.getElementById('scopeInput').value = 'Android Approval App Snapshot';
-      }
-      document.getElementById('btnAnalyze').click();
-    };
-
-    // Initial load
-    fetchDrift('207', 'Android Approval App Snapshot');
+    document.getElementById('btnReplay').onclick = replayLocalSession;
+    replayLocalSession();
   </script>
 </body>
 </html>

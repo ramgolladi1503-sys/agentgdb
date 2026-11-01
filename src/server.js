@@ -28,6 +28,7 @@ import {
 } from './db.js';
 import { replayManager } from './replayer.js';
 import { analyzePullRequestDrift, getCommitDiff } from './git_drift_analyzer.js';
+import { UniversalAgentWatcher } from './universal_watcher.js';
 
 // Upstream target (default to OpenAI standard endpoint, can be overridden per request or via env)
 const UPSTREAM_BASE_URL = process.env.UPSTREAM_BASE_URL || 'https://api.openai.com';
@@ -60,6 +61,23 @@ fastify.get('/api/sessions', async () => {
 fastify.get('/api/sessions/:id/turns', async (req) => {
   const branch = req.query.branch || 'main';
   return getTurnsForSession(req.params.id, branch);
+});
+
+// Live Local Agent Session Watcher API (Antigravity, Codex, Claude Code, Cursor)
+fastify.post('/api/local/watch', async (req) => {
+  const { sessionPath, coreGoals, allowedPaths, forbiddenPaths } = req.body || {};
+  
+  const targetPath = sessionPath || `${process.env.HOME}/.gemini/antigravity/brain/554eb738-91a4-4f63-9ce5-90279b2400b3/.system_generated/logs/transcript.jsonl`;
+  
+  const watcher = new UniversalAgentWatcher({
+    definedScope: {
+      coreGoals: coreGoals || ['Build local agent drift watcher and time-travel replay engine'],
+      allowedPaths: allowedPaths || [],
+      forbiddenPaths: forbiddenPaths || ['docs/', 'notes/', 'reports/', '.github/']
+    }
+  });
+
+  return watcher.parseSessionTranscript(targetPath);
 });
 
 fastify.get('/api/breakpoints', async () => {
