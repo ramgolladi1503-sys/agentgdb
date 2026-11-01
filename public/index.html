@@ -3,329 +3,249 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentGDB | The AI Agent Time-Machine & Debugger</title>
+  <title>AgentGDB | Scope Drift Replay & Code Diff Inspector</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; background-color: #0b0f17; color: #e2e8f0; }
+    body { font-family: 'Inter', sans-serif; background-color: #080c14; color: #e2e8f0; }
     pre, code, .mono { font-family: 'JetBrains Mono', monospace; }
     .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
-    .scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
   </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden">
 
-  <!-- Header Bar -->
-  <header class="h-14 border-b border-slate-800 bg-slate-900/60 px-5 flex items-center justify-between shrink-0">
-    <div class="flex items-center gap-3">
-      <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
-      <span class="font-bold tracking-tight text-lg text-white">Agent<span class="text-indigo-400">GDB</span></span>
-      <span class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full border border-slate-700">v1.0.0</span>
-      <span id="liveStatus" class="text-xs text-emerald-400 font-mono ml-2">● LIVE DAEMON ACTIVE (:9099)</span>
+  <!-- Top Navigation & PR Target Header -->
+  <header class="h-16 border-b border-slate-800 bg-slate-900/80 px-6 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2">
+        <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="font-bold tracking-tight text-lg text-white">Agent<span class="text-indigo-400">GDB</span></span>
+      </div>
+      <span class="text-xs bg-indigo-950/80 border border-indigo-700/60 text-indigo-300 px-2.5 py-1 rounded font-mono">
+        Scope Drift & Code Diff Replay
+      </span>
     </div>
 
-    <!-- Active Session Selector & Metrics -->
-    <div class="flex items-center gap-6">
+    <!-- Active PR & Scope Selection Form -->
+    <div class="flex items-center gap-4">
       <div class="flex items-center gap-2">
-        <span class="text-xs text-slate-400">Session:</span>
-        <select id="sessionSelect" class="bg-slate-800 text-xs border border-slate-700 text-slate-200 rounded px-2.5 py-1 focus:outline-none focus:border-indigo-500">
-          <option value="">No active sessions</option>
+        <span class="text-xs text-slate-400 font-medium">Target PR:</span>
+        <select id="prSelector" class="bg-slate-800 text-xs font-mono border border-slate-700 text-white rounded px-3 py-1.5 focus:border-indigo-500 focus:outline-none">
+          <option value="204">PR #204: Postgres Authority & Cutover</option>
+          <option value="207" selected>PR #207: Android Approval App Snapshot</option>
         </select>
       </div>
 
-      <!-- Branch Selector -->
       <div class="flex items-center gap-2">
-        <span class="text-xs text-slate-400">Branch:</span>
-        <select id="branchSelect" class="bg-slate-800 text-xs font-mono border border-slate-700 text-indigo-300 rounded px-2 py-1 focus:outline-none focus:border-indigo-500">
-          <option value="main">main</option>
-        </select>
+        <span class="text-xs text-slate-400 font-medium">Declared Scope:</span>
+        <input id="scopeInput" type="text" value="Android Approval App Snapshot" class="bg-slate-800 border border-slate-700 rounded text-xs px-3 py-1.5 text-slate-200 w-80 font-mono focus:border-indigo-500 focus:outline-none">
       </div>
 
-      <div class="flex items-center gap-4 text-xs font-mono text-slate-300 border-l border-slate-800 pl-4">
-        <div>Total Tokens: <span id="metricTokens" class="text-indigo-400 font-bold">0</span></div>
-        <div>Est. Cost: <span id="metricCost" class="text-emerald-400 font-bold">$0.00</span></div>
-        <div>Turns: <span id="metricTurns" class="text-amber-400 font-bold">0</span></div>
-      </div>
-
-      <!-- Controls -->
-      <div class="flex items-center gap-2 border-l border-slate-800 pl-4">
-        <button id="btnResume" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded shadow transition flex items-center gap-1.5">
-          <span>▶</span> Resume
-        </button>
-        <button id="btnFork" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded shadow transition flex items-center gap-1.5">
-          <span>🔀</span> Fork from Step
-        </button>
-      </div>
+      <button id="btnAnalyze" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded shadow transition flex items-center gap-1.5">
+        <span>🔄</span> Replay Drift
+      </button>
     </div>
   </header>
 
-  <!-- Main Work Area -->
+  <!-- Metrics Drift Banner -->
+  <div class="bg-slate-900/40 border-b border-slate-800 px-6 py-2.5 flex items-center justify-between text-xs font-mono shrink-0">
+    <div class="flex items-center gap-6">
+      <div>Total Commits: <strong id="mTotal" class="text-white">0</strong></div>
+      <div>In-Scope Code: <strong id="mInScope" class="text-emerald-400">0</strong></div>
+      <div>Docs Journaling Drift: <strong id="mDocsDrift" class="text-amber-400">0</strong></div>
+      <div>CI/Infra Expansion: <strong id="mCiDrift" class="text-rose-400">0</strong></div>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="text-slate-400">Overall Agent Drift Index:</span>
+      <span id="mDriftBadge" class="px-2 py-0.5 rounded font-bold bg-amber-950 text-amber-400 border border-amber-800">0% DRIFT</span>
+    </div>
+  </div>
+
+  <!-- Main Replay View -->
   <div class="flex-1 flex overflow-hidden">
 
-    <!-- Left Panel: Execution DAG / Timeline -->
-    <aside class="w-80 border-r border-slate-800 bg-slate-900/30 flex flex-col shrink-0">
-      <div class="p-3 border-b border-slate-800 flex justify-between items-center">
-        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Turn Timeline & Branches</span>
-        <span id="turnCountBadge" class="text-[10px] bg-indigo-950 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-800/50">0 Steps</span>
+    <!-- Left Column: Step-by-Step Commit & Drift Timeline -->
+    <aside class="w-[450px] border-r border-slate-800 bg-slate-950 flex flex-col shrink-0">
+      <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Execution Commits & Drift Detection</span>
+        <span id="commitCountLabel" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">0 steps</span>
       </div>
 
-      <!-- Steps List -->
-      <div id="timelineContainer" class="flex-1 overflow-y-auto p-3 space-y-2.5 scrollbar-thin">
-        <div class="text-center text-xs text-slate-500 py-10">
-          Waiting for agent calls via <br><code class="text-indigo-400">http://localhost:9099/v1</code>
-        </div>
-      </div>
-
-      <!-- Breakpoint Management Footer -->
-      <div class="p-3 border-t border-slate-800 bg-slate-900/50">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-semibold text-slate-300">⚡ Active Breakpoints</span>
-          <button id="btnAddBreakpoint" class="text-[11px] text-indigo-400 hover:text-indigo-300 font-mono">+ Add</button>
-        </div>
-        <div id="breakpointsList" class="space-y-1 text-xs">
-          <div class="flex items-center justify-between text-slate-400 py-0.5">
-            <label class="flex items-center gap-1.5">
-              <input type="checkbox" checked class="rounded bg-slate-800 border-slate-700 text-indigo-500">
-              <span class="font-mono text-[11px]">tool: bash</span>
-            </label>
-            <span class="text-[10px] text-amber-500 bg-amber-950/50 px-1 rounded">HALT</span>
-          </div>
-        </div>
+      <div id="commitListContainer" class="flex-1 overflow-y-auto p-3 space-y-2.5 scrollbar-thin">
+        <div class="text-center text-xs text-slate-500 py-10">Loading commit trajectory...</div>
       </div>
     </aside>
 
-    <!-- Center/Right Panel: Turn Inspector & Context Fork Editor -->
-    <main class="flex-1 flex flex-col bg-slate-950 overflow-hidden">
+    <!-- Right Column: Code Diff & Scope Diff Inspector -->
+    <main class="flex-1 flex flex-col bg-slate-900/20 overflow-hidden">
       
-      <!-- Turn Header -->
-      <div class="h-10 border-b border-slate-800 bg-slate-900/40 px-5 flex items-center justify-between shrink-0">
+      <!-- Diff Top Details -->
+      <div class="h-12 border-b border-slate-800 bg-slate-900/60 px-6 flex items-center justify-between shrink-0">
         <div class="flex items-center gap-3">
-          <span id="selectedTurnTitle" class="text-xs font-semibold text-slate-300">Select a turn from timeline</span>
-          <span id="selectedTurnBadge" class="hidden text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded"></span>
+          <span id="activeCommitHash" class="font-mono text-xs font-bold text-indigo-400">SELECT COMMIT</span>
+          <span id="activeCommitTitle" class="text-xs text-slate-300 truncate max-w-xl">Click on a commit from the replay timeline to inspect its code changes</span>
         </div>
-        <div id="selectedTurnMeta" class="text-xs font-mono text-slate-400 flex gap-4">
-          <!-- Latency, tokens will show here -->
+        <div id="activeCommitBadge" class="text-[11px] font-mono px-2 py-0.5 rounded hidden">
+          <!-- Drift badge here -->
         </div>
       </div>
 
-      <!-- Inspector Body (Split View) -->
-      <div class="flex-1 grid grid-cols-2 gap-0 overflow-hidden">
-
-        <!-- Column A: Proposed LLM Output & Tool Calls -->
-        <div class="border-r border-slate-800 flex flex-col overflow-hidden">
-          <div class="bg-slate-900/50 px-4 py-2 border-b border-slate-800 text-xs font-medium text-slate-400 flex justify-between">
-            <span>LLM Response & Tool Actions</span>
-            <span class="font-mono text-[10px] text-slate-500">Agent Proposal</span>
-          </div>
-          <div class="flex-1 overflow-y-auto p-4 scrollbar-thin">
-            <div id="toolCallsView" class="space-y-3">
-              <p class="text-xs text-slate-600 italic">No turn selected.</p>
-            </div>
+      <!-- Drift Explanation Card -->
+      <div id="driftExplanationBox" class="p-4 bg-slate-900/70 border-b border-slate-800 hidden">
+        <div class="flex items-start gap-3">
+          <span id="driftIcon" class="text-lg">⚠️</span>
+          <div>
+            <div id="driftCategoryTitle" class="text-xs font-bold text-amber-400 uppercase tracking-wide">Drift Detected</div>
+            <div id="driftExplanationText" class="text-xs text-slate-300 mt-0.5">Explanation will appear here.</div>
           </div>
         </div>
-
-        <!-- Column B: Tool Output & Mock Injector (The Time-Machine Forking Workspace) -->
-        <div class="flex flex-col overflow-hidden">
-          <div class="bg-slate-900/50 px-4 py-2 border-b border-slate-800 text-xs font-medium text-slate-400 flex justify-between items-center">
-            <span>Tool Output & Mock Override (Zero-Cost Fork)</span>
-            <button id="btnSaveMock" class="text-[11px] bg-indigo-600/80 hover:bg-indigo-600 text-white px-2 py-0.5 rounded transition">
-              Save Mock & Fork
-            </button>
-          </div>
-          <div class="flex-1 flex flex-col p-4 space-y-3 overflow-hidden">
-            <div class="text-[11px] text-slate-400">
-              Edit the tool's return payload below to mock what the environment should have returned, then click <strong>Fork & Replay</strong>.
-            </div>
-            <textarea id="mockPayloadEditor" class="flex-1 bg-slate-900 border border-slate-800 rounded p-3 text-xs font-mono text-emerald-400 focus:outline-none focus:border-indigo-500 resize-none scrollbar-thin" placeholder="// Tool execution result or mock JSON output will appear here for editing..."></textarea>
-          </div>
-        </div>
-
       </div>
 
-      <!-- Bottom Status Bar -->
-      <footer class="h-8 border-t border-slate-800 bg-slate-900/70 px-4 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-        <div>Drop-in target: <span class="text-indigo-400">OPENAI_BASE_URL="http://localhost:9099/v1"</span></div>
-        <div id="wsIndicator" class="flex items-center gap-1.5 text-emerald-400">
-          <span class="w-2 h-2 rounded-full bg-emerald-500"></span> WebSocket Connected
+      <!-- Real Code Diff Display -->
+      <div class="flex-1 flex flex-col overflow-hidden p-4">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-xs font-semibold text-slate-400">Git Patch & Modified Files</span>
+          <span id="filesCountBadge" class="text-[10px] text-slate-500 font-mono">0 files touched</span>
         </div>
-      </footer>
+        <pre id="codeDiffView" class="flex-1 bg-slate-950 border border-slate-800 rounded p-4 text-xs font-mono text-slate-300 overflow-auto scrollbar-thin leading-relaxed">
+Select a commit to view the exact code diff.
+        </pre>
+      </div>
 
     </main>
 
   </div>
 
   <script>
-    let activeSession = null;
-    let activeBranch = 'main';
-    let selectedTurn = null;
-    let turnsData = [];
+    let activeData = null;
+    let selectedCommit = null;
 
-    // Connect WebSocket to AgentGDB Daemon
-    const ws = new WebSocket(`ws://${window.location.host}/ws`);
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      console.log('[AgentGDB Event]:', msg);
-      if (msg.event === 'turn_completed' || msg.event === 'breakpoint_hit' || msg.event === 'fork_created') {
-        loadSessions();
-        if (activeSession === msg.data.sessionId) {
-          loadTurns(activeSession, activeBranch);
-        }
-      }
-    };
-
-    document.getElementById('branchSelect').onchange = (e) => {
-      activeBranch = e.target.value;
-      loadTurns(activeSession, activeBranch);
-    };
-
-    document.getElementById('sessionSelect').onchange = (e) => {
-      activeSession = e.target.value;
-      activeBranch = 'main';
-      loadTurns(activeSession, activeBranch);
-    };
-
-    async function loadSessions() {
-      const res = await fetch('/api/sessions');
-      const sessions = await res.json();
-      const select = document.getElementById('sessionSelect');
-      select.innerHTML = '';
-      if (sessions.length === 0) {
-        select.innerHTML = '<option value="">No sessions yet</option>';
-        return;
-      }
-      sessions.forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s.id;
-        opt.textContent = `${s.name || s.id} (${s.model || 'model'})`;
-        select.appendChild(opt);
-      });
-      if (!activeSession && sessions.length > 0) {
-        activeSession = sessions[0].id;
-      }
-      select.value = activeSession;
-      loadTurns(activeSession, activeBranch);
-    }
-
-    async function loadTurns(sessionId, branch = 'main') {
-      if (!sessionId) return;
-      const res = await fetch(`/api/sessions/${sessionId}/turns?branch=${branch}`);
-      turnsData = await res.json();
-
-      // Update available branches in branchSelect
-      const branchSelect = document.getElementById('branchSelect');
-      const currentBranches = ['main'];
-      if (sessionId === 'PR-204-Codex-Gate3-Verification') {
-        currentBranches.push('fork_gate3_rehearsal_approved');
-      }
-      branchSelect.innerHTML = currentBranches.map(b => 
-        `<option value="${b}" ${b === branch ? 'selected' : ''}>${b}</option>`
-      ).join('');
+    async function fetchDrift(prNumber, scope) {
+      document.getElementById('commitListContainer').innerHTML = '<div class="text-center text-xs text-slate-500 py-10">Replaying trajectory from git repository...</div>';
       
-      const container = document.getElementById('timelineContainer');
-      container.innerHTML = '';
-      document.getElementById('turnCountBadge').textContent = `${turnsData.length} Steps`;
+      const res = await fetch(`/api/pr/drift?pr=${prNumber}&scope=${encodeURIComponent(scope)}`);
+      activeData = await res.json();
 
-      let totalTokens = 0;
-      turnsData.forEach((turn, idx) => {
-        totalTokens += turn.tokens || 0;
-        const card = document.createElement('div');
-        const isSelected = selectedTurn && selectedTurn.id === turn.id;
-        card.className = `p-2.5 rounded border cursor-pointer transition ${
-          isSelected 
-            ? 'bg-indigo-950/40 border-indigo-500' 
-            : 'bg-slate-800/40 border-slate-700/60 hover:border-slate-600'
-        }`;
-        
-        let toolName = 'Prompt Turn';
-        try {
-          const calls = JSON.parse(turn.tool_calls || '[]');
-          if (calls.length > 0) toolName = `Tool: ${calls[0].function?.name || 'call'}`;
-        } catch(e) {}
-
-        card.innerHTML = `
-          <div class="flex items-center justify-between text-xs mb-1">
-            <span class="font-mono font-bold text-slate-300">#${turn.turn_index} ${toolName}</span>
-            <span class="text-[10px] text-slate-500 font-mono">${turn.latency_ms}ms</span>
-          </div>
-          <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-            <span>Branch: <span class="text-indigo-400">${turn.branch_name}</span></span>
-            <span>${turn.tokens} tokens</span>
-          </div>
-        `;
-        card.onclick = () => selectTurn(turn);
-        container.appendChild(card);
-      });
-
-      document.getElementById('metricTokens').textContent = totalTokens.toLocaleString();
-      document.getElementById('metricTurns').textContent = turnsData.length;
-      document.getElementById('metricCost').textContent = `$${(totalTokens * 0.000003).toFixed(4)}`;
-
-      if (turnsData.length > 0 && !selectedTurn) {
-        selectTurn(turnsData[turnsData.length - 1]);
-      }
-    }
-
-    function selectTurn(turn) {
-      selectedTurn = turn;
-      document.getElementById('selectedTurnTitle').textContent = `Turn #${turn.turn_index} (${turn.branch_name})`;
-      document.getElementById('selectedTurnMeta').innerHTML = `
-        <span>Latency: <strong class="text-slate-300">${turn.latency_ms}ms</strong></span>
-        <span>Tokens: <strong class="text-indigo-400">${turn.tokens}</strong></span>
-      `;
-
-      // Render tool calls
-      const toolsContainer = document.getElementById('toolCallsView');
-      let calls = [];
-      try { calls = JSON.parse(turn.tool_calls || '[]'); } catch(e){}
-
-      if (calls.length === 0) {
-        toolsContainer.innerHTML = `
-          <div class="bg-slate-900 p-3 rounded border border-slate-800">
-            <div class="text-xs text-slate-400 mb-1 font-semibold">Assistant Text:</div>
-            <pre class="text-xs text-slate-300 whitespace-pre-wrap">${JSON.parse(turn.response_payload || '{}').choices?.[0]?.message?.content || 'No text content'}</pre>
-          </div>
-        `;
+      // Render metrics
+      document.getElementById('mTotal').textContent = activeData.totalCommits;
+      document.getElementById('mInScope').textContent = activeData.metrics.inScopeCount;
+      document.getElementById('mDocsDrift').textContent = activeData.metrics.docsDriftCount;
+      document.getElementById('mCiDrift').textContent = activeData.metrics.ciDriftCount || activeData.metrics.expansionCount || 0;
+      
+      const driftPercent = activeData.metrics.driftPercentage;
+      const driftBadge = document.getElementById('mDriftBadge');
+      driftBadge.textContent = `${driftPercent}% DRIFT INDEX`;
+      if (driftPercent > 50) {
+        driftBadge.className = 'px-2 py-0.5 rounded font-bold bg-rose-950 text-rose-400 border border-rose-800';
+      } else if (driftPercent > 20) {
+        driftBadge.className = 'px-2 py-0.5 rounded font-bold bg-amber-950 text-amber-400 border border-amber-800';
       } else {
-        toolsContainer.innerHTML = calls.map(c => `
-          <div class="bg-slate-900 p-3 rounded border border-slate-800 space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-mono font-bold text-indigo-400">${c.function?.name}()</span>
-              <span class="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono">ID: ${c.id}</span>
-            </div>
-            <pre class="text-[11px] text-slate-300 bg-slate-950 p-2 rounded overflow-x-auto">${JSON.stringify(JSON.parse(c.function?.arguments || '{}'), null, 2)}</pre>
-          </div>
-        `).join('');
+        driftBadge.className = 'px-2 py-0.5 rounded font-bold bg-emerald-950 text-emerald-400 border border-emerald-800';
       }
 
-      // Populate mock editor
-      document.getElementById('mockPayloadEditor').value = turn.tool_results || 
-        '{\n  "status": "success",\n  "output": "Mocked tool return for zero-cost branch replaying"\n}';
+      document.getElementById('commitCountLabel').textContent = `${activeData.commits.length} steps`;
+
+      // Render timeline list
+      const container = document.getElementById('commitListContainer');
+      container.innerHTML = '';
+
+      activeData.commits.forEach((c) => {
+        const item = document.createElement('div');
+        const isDrift = c.driftCategory !== 'IN_SCOPE';
+        
+        let badgeColor = 'bg-emerald-950 text-emerald-400 border-emerald-800';
+        let badgeText = 'IN SCOPE';
+        if (c.driftCategory === 'DOCS_JOURNALING_DRIFT') {
+          badgeColor = 'bg-amber-950 text-amber-400 border-amber-800';
+          badgeText = 'DOCS DRIFT';
+        } else if (c.driftCategory === 'CI_WORKFLOW_DRIFT' || c.driftCategory === 'SCOPE_EXPANSION_DRIFT') {
+          badgeColor = 'bg-rose-950 text-rose-400 border-rose-800';
+          badgeText = 'CI/INFRA DRIFT';
+        } else if (c.driftCategory === 'STALLED_EVIDENCE_LOOP') {
+          badgeColor = 'bg-purple-950 text-purple-400 border-purple-800';
+          badgeText = 'STALLED LOOP';
+        }
+
+        item.className = `p-3 rounded border cursor-pointer transition ${
+          selectedCommit && selectedCommit.commitHash === c.commitHash
+            ? 'bg-indigo-950/40 border-indigo-500'
+            : (isDrift ? 'bg-slate-900/60 border-amber-900/40 hover:border-amber-700' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700')
+        }`;
+
+        item.innerHTML = `
+          <div class="flex items-center justify-between text-xs mb-1">
+            <span class="font-mono font-bold text-slate-300">#${c.stepIndex} [${c.commitHash}]</span>
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded border ${badgeColor}">${badgeText}</span>
+          </div>
+          <div class="text-xs font-medium text-slate-200 line-clamp-2 mb-1.5">${c.title}</div>
+          <div class="flex items-center justify-between text-[10px] font-mono text-slate-400">
+            <span>${c.changedFilesCount} file(s) modified</span>
+            <span>${c.date}</span>
+          </div>
+        `;
+
+        item.onclick = () => selectCommit(c);
+        container.appendChild(item);
+      });
+
+      if (activeData.commits.length > 0) {
+        selectCommit(activeData.commits[0]);
+      }
     }
 
-    // Fork from turn handler
-    document.getElementById('btnFork').onclick = async () => {
-      if (!selectedTurn) return alert('Select a step first!');
-      const branchName = prompt('Enter a new branch name for this fork:', `fork_step_${selectedTurn.turn_index}`);
-      if (!branchName) return;
+    async function selectCommit(c) {
+      selectedCommit = c;
+      document.getElementById('activeCommitHash').textContent = `Commit [${c.commitHash}]`;
+      document.getElementById('activeCommitTitle').textContent = c.title;
 
-      await fetch(`/api/sessions/${activeSession}/fork`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          fromTurnIndex: selectedTurn.turn_index,
-          branchName: branchName
-        })
-      });
-      alert(`Fork created! Steps 1..${selectedTurn.turn_index} are cached. The next agent call will replay them instantly with $0.00 cost.`);
+      const badge = document.getElementById('activeCommitBadge');
+      badge.classList.remove('hidden');
+      
+      const explainBox = document.getElementById('driftExplanationBox');
+      const isDrift = c.driftCategory !== 'IN_SCOPE';
+
+      if (isDrift) {
+        explainBox.classList.remove('hidden');
+        document.getElementById('driftCategoryTitle').textContent = c.driftCategory.replace(/_/g, ' ');
+        document.getElementById('driftExplanationText').textContent = c.driftReason;
+        badge.textContent = 'DRIFT DETECTED';
+        badge.className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800';
+      } else {
+        explainBox.classList.add('hidden');
+        badge.textContent = 'ALIGNED WITH SCOPE';
+        badge.className = 'text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800';
+      }
+
+      document.getElementById('filesCountBadge').textContent = `${c.changedFilesCount} files modified`;
+
+      // Fetch full diff from backend
+      const diffContainer = document.getElementById('codeDiffView');
+      diffContainer.textContent = 'Loading code diff...';
+
+      const res = await fetch(`/api/pr/commit-diff?hash=${c.fullHash}`);
+      const data = await res.json();
+      diffContainer.textContent = data.diff || c.statSummary;
+    }
+
+    document.getElementById('btnAnalyze').onclick = () => {
+      const pr = document.getElementById('prSelector').value;
+      const scope = document.getElementById('scopeInput').value;
+      fetchDrift(pr, scope);
     };
 
-    // Resume button
-    document.getElementById('btnResume').onclick = async () => {
-      if (!activeSession) return;
-      await fetch(`/api/sessions/${activeSession}/resume`, { method: 'POST' });
+    document.getElementById('prSelector').onchange = (e) => {
+      const pr = e.target.value;
+      if (pr === '204') {
+        document.getElementById('scopeInput').value = 'PostgreSQL Database Migration and Production Readiness Cutover';
+      } else {
+        document.getElementById('scopeInput').value = 'Android Approval App Snapshot';
+      }
+      document.getElementById('btnAnalyze').click();
     };
 
-    loadSessions();
+    // Initial load
+    fetchDrift('207', 'Android Approval App Snapshot');
   </script>
 </body>
 </html>

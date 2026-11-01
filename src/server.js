@@ -27,6 +27,7 @@ import {
   removeBreakpoint
 } from './db.js';
 import { replayManager } from './replayer.js';
+import { analyzePullRequestDrift, getCommitDiff } from './git_drift_analyzer.js';
 
 // Upstream target (default to OpenAI standard endpoint, can be overridden per request or via env)
 const UPSTREAM_BASE_URL = process.env.UPSTREAM_BASE_URL || 'https://api.openai.com';
@@ -63,6 +64,26 @@ fastify.get('/api/sessions/:id/turns', async (req) => {
 
 fastify.get('/api/breakpoints', async () => {
   return getBreakpoints();
+});
+
+// Scope & Git Code Drift Replay API
+fastify.get('/api/pr/drift', async (req) => {
+  const repoPath = req.query.repoPath || '/Users/madhuram/aixion-control-tower';
+  const prNumber = req.query.pr || '204';
+  const definedScope = req.query.scope || 'PostgreSQL Database Migration and Production Readiness Cutover';
+  const limit = parseInt(req.query.limit || '40', 10);
+
+  const baseRef = prNumber === '207' ? '5a55b23' : '5a55b23';
+  const headRef = `pr-${prNumber}`;
+
+  return analyzePullRequestDrift(repoPath, baseRef, headRef, definedScope, limit);
+});
+
+fastify.get('/api/pr/commit-diff', async (req) => {
+  const repoPath = req.query.repoPath || '/Users/madhuram/aixion-control-tower';
+  const hash = req.query.hash;
+  if (!hash) return { error: 'Commit hash is required' };
+  return { diff: getCommitDiff(repoPath, hash) };
 });
 
 fastify.post('/api/breakpoints', async (req) => {
