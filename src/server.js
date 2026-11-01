@@ -29,6 +29,7 @@ import {
 import { replayManager } from './replayer.js';
 import { analyzePullRequestDrift, getCommitDiff } from './git_drift_analyzer.js';
 import { UniversalAgentWatcher } from './universal_watcher.js';
+import { LiveSessionStreamWatcher } from './live_session_stream.js';
 
 // Upstream target (default to OpenAI standard endpoint, can be overridden per request or via env)
 const UPSTREAM_BASE_URL = process.env.UPSTREAM_BASE_URL || 'https://api.openai.com';
@@ -252,6 +253,38 @@ fastify.post('/v1/chat/completions', async (req, reply) => {
   } catch (err) {
     reply.status(502).send({ error: 'AgentGDB failed upstream call', message: err.message });
   }
+});
+
+// Start Live Continuous Background Watcher
+const liveTranscriptPath = `${process.env.HOME}/.gemini/antigravity/brain/554eb738-91a4-4f63-9ce5-90279b2400b3/.system_generated/logs/transcript.jsonl`;
+let activeLiveWatcher = new LiveSessionStreamWatcher(
+  liveTranscriptPath,
+  {
+    coreGoals: ['Build and monitor live running drift watcher for Antigravity & Codex'],
+    forbiddenPaths: ['tradebot', 'docs/verification/', '.github/workflows/']
+  },
+  (newStep) => {
+    broadcastToUI('live_step_added', newStep);
+  },
+  (driftAlert) => {
+    broadcastToUI('live_drift_alert', driftAlert);
+  }
+);
+activeLiveWatcher.start();
+
+fastify.get('/api/live/active-goal', async () => {
+  return {
+    activeGoal: activeLiveWatcher.activeGoal,
+    isWatching: activeLiveWatcher.isWatching,
+    path: activeLiveWatcher.filePath
+  };
+});
+
+fastify.post('/api/live/update-scope', async (req) => {
+  const { coreGoals, forbiddenPaths } = req.body || {};
+  if (coreGoals) activeLiveWatcher.scope.coreGoals = coreGoals;
+  if (forbiddenPaths) activeLiveWatcher.scope.forbiddenPaths = forbiddenPaths;
+  return { success: true, scope: activeLiveWatcher.scope };
 });
 
 const PORT = process.env.PORT || 9099;
