@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const failurePreload = path.join(repoRoot, 'test-support', 'fail-live-watcher-start.mjs');
@@ -21,7 +21,7 @@ async function unusedPort() {
 async function waitForServer(child, port) {
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`AgentGDB exited during startup with code ${child.exitCode}`);
+    if (child.exitCode !== null) throw new Error(`AgentGDB exited during startup with code ${child.exitCode}${child.startupError ? `: ${child.startupError}` : ''}`);
     try {
       const response = await fetch(`http://127.0.0.1:${port}/`);
       if (response.ok) return;
@@ -44,7 +44,7 @@ test('project switch preserves the active observer when candidate startup fails'
     fs.writeFileSync(transcriptPath, `${JSON.stringify({ type: 'session_meta', payload: { cwd: workspace } })}\n`);
   }
 
-  const daemon = spawn(process.execPath, ['--import', failurePreload, 'src/server.js'], {
+  const daemon = spawn(process.execPath, ['--import', pathToFileURL(failurePreload).href, 'src/server.js'], {
     cwd: repoRoot,
     env: {
       ...process.env,
@@ -54,8 +54,12 @@ test('project switch preserves the active observer when candidate startup fails'
       AGENTGDB_APPROVAL_TOKEN: approvalToken,
       AGENTGDB_TEST_FAIL_WATCHER_PATH: failedTranscript
     },
-    stdio: 'ignore'
+    stdio: ['ignore', 'ignore', 'pipe']
   });
+  let startupError = '';
+  daemon.stderr.setEncoding('utf8');
+  daemon.stderr.on('data', (chunk) => { startupError = `${startupError}${chunk}`.slice(-4096); });
+  Object.defineProperty(daemon, 'startupError', { get: () => startupError });
   t.after(async () => {
     if (daemon.exitCode === null) {
       daemon.kill('SIGTERM');

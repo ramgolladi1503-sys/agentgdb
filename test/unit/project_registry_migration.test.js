@@ -37,8 +37,8 @@ test('legacy seeded personal defaults are backed up and removed without dropping
   assert.equal(migrated.activeProjectId, null);
   assert.deepEqual(migrated.projects, [original.projects[3], original.projects[4]]);
   assert.deepEqual(JSON.parse(fs.readFileSync(`${configPath}.pre-default-cleanup`, 'utf8')), original);
-  assert.equal(fs.statSync(`${configPath}.pre-default-cleanup`).mode & 0o777, 0o600);
   if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(`${configPath}.pre-default-cleanup`).mode & 0o777, 0o600);
     assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
     assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
   }

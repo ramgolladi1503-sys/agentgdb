@@ -8,10 +8,14 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 test('npm package contains runtime files and excludes development and evaluation material', () => {
-  const result = spawnSync('npm', ['pack', '--dry-run', '--json'], {
+  const npmCli = process.env.npm_execpath;
+  const command = npmCli ? process.execPath : process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const args = npmCli ? [npmCli, 'pack', '--dry-run', '--json'] : ['pack', '--dry-run', '--json'];
+  const result = spawnSync(command, args, {
     cwd: repoRoot,
     encoding: 'utf8',
-    timeout: 30000
+    timeout: 30000,
+    shell: !npmCli && process.platform === 'win32'
   });
   assert.equal(result.status, 0, result.stderr || result.error?.message);
 

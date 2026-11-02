@@ -37,7 +37,7 @@ test('worktree manager lists the repository worktree without assuming a specific
   execFileSync('git', ['-C', repo, 'commit', '-qm', 'fixture']);
   const worktrees = new GitWorktreeManager(repo).listWorktrees();
   assert.equal(worktrees.length, 1);
-  assert.equal(fs.realpathSync(worktrees[0].path), fs.realpathSync(repo));
+  assert.equal(path.normalize(fs.realpathSync(worktrees[0].path)).toLowerCase(), path.normalize(fs.realpathSync(repo)).toLowerCase());
 });
 
 test('MCP scope check returns UNKNOWN and denied when daemon is unavailable', async () => {

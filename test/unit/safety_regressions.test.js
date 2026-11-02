@@ -39,7 +39,8 @@ test('default project registry is empty and contains no developer paths', (t) =>
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   // Run in a child process so module-level HOME-derived paths are isolated.
   const { spawnSync } = process.getBuiltinModule('node:child_process');
-  const script = `import { loadProjects } from ${JSON.stringify(path.resolve(__dirname, '../../src/project_registry.js'))}; console.log(JSON.stringify(loadProjects()));`;
+  const projectRegistryUrl = new URL('../../src/project_registry.js', import.meta.url).href;
+  const script = `import { loadProjects } from ${JSON.stringify(projectRegistryUrl)}; console.log(JSON.stringify(loadProjects()));`;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   const config = JSON.parse(result.stdout);
@@ -131,9 +132,9 @@ test('trace retention reports and purges expired sessions, turns, and approvals 
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentgdb-retention-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const { spawnSync } = process.getBuiltinModule('node:child_process');
-  const dbPath = path.resolve(__dirname, '../../src/db.js');
+  const dbUrl = new URL('../../src/db.js', import.meta.url).href;
   const script = `
-    import db, { createSession, createApproval, recordTurn, applyTraceRetention, getAllSessions, getTurnsForSession } from ${JSON.stringify(dbPath)};
+    import db, { createSession, createApproval, recordTurn, applyTraceRetention, getAllSessions, getTurnsForSession } from ${JSON.stringify(dbUrl)};
     const now = Date.now();
     createSession('old', 'old', 'test');
     createSession('new', 'new', 'test');

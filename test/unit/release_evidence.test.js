@@ -155,7 +155,7 @@ test('release gate CLI fails closed when the evidence manifest is missing', () =
     const validator = path.resolve('scripts/validate-release-evidence.js');
     const result = spawnSync(process.execPath, [validator, '--tag', TAG, '--sha', SHA], { cwd: root, encoding: 'utf8' });
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /missing docs\/release-evidence\.json/);
+    assert.match(result.stderr.replaceAll('\\', '/'), /missing docs\/release-evidence\.json/);
   });
 });
 
