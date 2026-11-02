@@ -2,9 +2,10 @@
   "name": "agentgdb",
   "version": "1.0.0",
   "type": "module",
-  "description": "Interactive Time-Travel Debugger and Replay Proxy for AI Agent Loops",
+  "description": "Local coding-agent session inspector with supervised MCP tools",
+  "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": "^22 || ^24 || ^26"
   },
   "overrides": {
     "@fastify/static": {
@@ -16,10 +17,19 @@
     "agentgdb": "./bin/agentgdb.js",
     "agentgdb-mcp": "./bin/agentgdb-mcp.js"
   },
+  "files": [
+    "bin/",
+    "LICENSE",
+    "public/",
+    "src/",
+    "README.md"
+  ],
   "scripts": {
     "start": "node src/server.js",
     "build:css": "tailwindcss -i src/styles.css -o public/tailwind.css --minify",
-    "test": "node --test"
+    "test": "node --test",
+    "smoke:package": "node scripts/smoke-installed-package.js",
+    "validate:release": "node scripts/validate-release-evidence.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.1",

@@ -1,6 +1,5 @@
 import fs from 'fs';
-import path from 'path';
-import readline from 'readline';
+import { consumeJsonlFile, MAX_TRANSCRIPT_BYTES } from './transcript_limits.js';
 
 // Universal Agent Transcript Watcher & Drift Invariant Engine
 // Supports: Antigravity, Codex, Claude Code, Cursor, OpenHands
@@ -13,6 +12,7 @@ export class UniversalAgentWatcher {
       allowedPaths: [],
       forbiddenPaths: []
     };
+    this.maxTranscriptBytes = options.maxTranscriptBytes ?? MAX_TRANSCRIPT_BYTES;
     this.events = [];
   }
 
@@ -22,21 +22,15 @@ export class UniversalAgentWatcher {
       throw new Error(`Session transcript file not found: ${filePath}`);
     }
 
-    const fileStream = fs.createReadStream(filePath);
-    const rl = readline.createInterface({
-      input: fileStream,
-      crlfDelay: Infinity
-    });
-
     const parsedEvents = [];
     const parseErrors = [];
     let turnCounter = 0;
     let sessionStartTime = null;
     let lineNumber = 0;
 
-    for await (const line of rl) {
+    const parseLine = (line) => {
       lineNumber++;
-      if (!line.trim()) continue;
+      if (!line.trim()) return;
       try {
         const raw = JSON.parse(line);
         const unified = this.normalizeEvent(raw, ++turnCounter);
@@ -55,7 +49,16 @@ export class UniversalAgentWatcher {
       } catch (err) {
         parseErrors.push({ line: lineNumber, message: err instanceof SyntaxError ? 'Invalid JSON line' : 'Transcript event could not be interpreted' });
       }
-    }
+    };
+
+    const result = await consumeJsonlFile(filePath, {
+      maxBytes: this.maxTranscriptBytes,
+      onLine: parseLine
+    });
+    // Offline parsing treats a final complete JSON record without a trailing
+    // newline the same way readline did. Live watching retains that tail until
+    // the writer completes it.
+    if (result.pendingBuffer.length) parseLine(result.pendingBuffer.toString('utf8'));
 
     return { ...this.evaluateTrajectoryDrift(parsedEvents, this.definedScope), parseErrors };
   }

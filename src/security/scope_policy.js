@@ -5,10 +5,28 @@ import path from 'path';
 export function normalizeActionPath(value) {
   if (typeof value !== 'string' || !value.trim() || value.includes('\0')) return null;
   const raw = value.replaceAll('\\', '/');
-  if (raw.startsWith('/') || /^[a-zA-Z]:\//.test(raw) || raw.startsWith('//')) return null;
+  // Reject every drive-prefixed path, including Windows drive-relative forms
+  // such as `C:temp/file`, whose base depends on the process drive directory.
+  if (raw.startsWith('/') || /^[a-zA-Z]:/.test(raw) || raw.startsWith('//')) return null;
   const segments = raw.split('/');
-  if (segments.some((part) => part === '..' || part === '' || part === '.')) return null;
+  if (segments.some((part) => {
+    if (part === '..' || part === '' || part === '.' || /[<>:"|?*\u0000-\u001f]/.test(part) || /[. ]$/.test(part)) return true;
+    // Windows treats these device names as special even when an extension is
+    // present. Reject them on every platform so the same policy has one meaning.
+    return /^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?$/i.test(part);
+  })) return null;
   return segments.join('/');
+}
+
+/** Accept only exact paths, explicit directory recursion, or an explicit all-paths rule. */
+export function normalizeScopePattern(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  if (value === '**') return '**';
+  const recursive = value.endsWith('/**');
+  const base = recursive ? value.slice(0, -3) : value;
+  const normalized = normalizeActionPath(base);
+  if (!normalized) return null;
+  return recursive ? `${normalized}/**` : normalized;
 }
 
 /** Snapshot check for lexical containment and existing symlink escapes. */
@@ -24,11 +42,10 @@ export function pathStaysInWorkspace(relativePath, workspacePath) {
       probe = path.join(probe, segment);
       try {
         const stat = fs.lstatSync(probe);
-        if (stat.isSymbolicLink()) {
-          const realTarget = fs.realpathSync(probe);
-          const targetRelative = path.relative(root, realTarget);
-          if (targetRelative === '..' || targetRelative.startsWith(`..${path.sep}`) || path.isAbsolute(targetRelative)) return false;
-        }
+        // Deny links even when their current target is inside the workspace.
+        // A target can be swapped after this snapshot check, so following links
+        // would make the allowlist's meaning depend on mutable filesystem state.
+        if (stat.isSymbolicLink()) return false;
       } catch (error) {
         if (error.code === 'ENOENT' || error.code === 'ENOTDIR') break;
         return false;
@@ -41,7 +58,7 @@ export function pathStaysInWorkspace(relativePath, workspacePath) {
 }
 
 /** Enforcement decision for proposed tool calls. Missing policy always denies. */
-export function evaluateScopePolicy(targetPath, scope, monitoringActive = true) {
+export function evaluateScopePolicy(targetPath, scope, monitoringActive = true, platform = process.platform) {
   const normalizedTarget = normalizeActionPath(targetPath);
   if (!normalizedTarget) return { allowed: false, driftStatus: 'UNKNOWN', reason: 'Target must be a normalized relative path' };
   if (monitoringActive !== true) return { targetPath, allowed: false, driftStatus: 'UNKNOWN', reason: 'No active scope policy is configured' };
@@ -51,28 +68,25 @@ export function evaluateScopePolicy(targetPath, scope, monitoringActive = true) 
     return { targetPath, allowed: false, driftStatus: 'UNKNOWN', reason: 'No explicit allowlist is configured' };
   }
 
-  const normalizePattern = (value) => {
-    if (typeof value !== 'string') return null;
-    const wildcard = value.endsWith('/**') ? '/**' : value.endsWith('*') ? '*' : '';
-    const base = wildcard ? value.slice(0, -wildcard.length).replace(/\/$/, '') : value;
-    const normalized = base === '' && wildcard ? '**' : normalizeActionPath(base);
-    return normalized !== null ? `${normalized}${wildcard}` : null;
-  };
-  const target = normalizedTarget;
-  const matches = (rawPattern) => {
-    const pattern = normalizePattern(rawPattern);
-    if (!pattern) return false;
-    if (pattern === '**') return true;
-    if (pattern.endsWith('/**')) {
-      const directory = pattern.slice(0, -3).replace(/\/$/, '');
+  const normalizedAllowedPaths = allowedPaths.map(normalizeScopePattern);
+  const normalizedForbiddenPaths = forbiddenPaths.map(normalizeScopePattern);
+  if (normalizedAllowedPaths.some((pattern) => pattern === null) || normalizedForbiddenPaths.some((pattern) => pattern === null)) {
+    return { targetPath, allowed: false, driftStatus: 'UNKNOWN', reason: 'Scope policy contains an invalid path pattern.' };
+  }
+  const caseInsensitive = platform === 'win32';
+  const target = caseInsensitive ? normalizedTarget.toLowerCase() : normalizedTarget;
+  const matches = (pattern) => {
+    const comparablePattern = caseInsensitive ? pattern.toLowerCase() : pattern;
+    if (comparablePattern === '**') return true;
+    if (comparablePattern.endsWith('/**')) {
+      const directory = comparablePattern.slice(0, -3).replace(/\/$/, '');
       return target === directory || target.startsWith(`${directory}/`);
     }
-    if (pattern.endsWith('*')) return target.startsWith(pattern.slice(0, -1));
-    return target === pattern || target.startsWith(`${pattern}/`);
+    return target === comparablePattern;
   };
 
-  const denied = forbiddenPaths.some(matches);
-  const permitted = !denied && allowedPaths.some(matches);
+  const denied = normalizedForbiddenPaths.some(matches);
+  const permitted = !denied && normalizedAllowedPaths.some(matches);
   return {
     targetPath,
     allowed: permitted,

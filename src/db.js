@@ -2,18 +2,43 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { createHash } from 'crypto';
+import { redactSensitive, redactSensitiveText } from './security/redaction.js';
 
 const HOME_DIR = process.env.HOME || process.env.USERPROFILE || '.';
 const DB_DIR = path.join(HOME_DIR, '.agentgdb');
-if (!fs.existsSync(DB_DIR)) {
-  fs.mkdirSync(DB_DIR, { recursive: true });
+try {
+  const stateDir = fs.lstatSync(DB_DIR);
+  if (!stateDir.isDirectory() || stateDir.isSymbolicLink()) {
+    throw new Error('AgentGDB database directory must be a real directory; refusing symlinked or non-directory state paths.');
+  }
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+  fs.mkdirSync(DB_DIR, { recursive: true, mode: 0o700 });
 }
 
 const DB_PATH = path.join(DB_DIR, 'traces.db');
+if (process.platform !== 'win32') fs.chmodSync(DB_DIR, 0o700);
+try {
+  const databaseFile = fs.lstatSync(DB_PATH);
+  if (!databaseFile.isFile() || databaseFile.isSymbolicLink()) {
+    throw new Error('AgentGDB database file must be a regular file; refusing symlinked or non-file database paths.');
+  }
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+if (process.platform !== 'win32') {
+  // Create the file privately before SQLite opens it, so the default process
+  // umask cannot briefly expose trace payloads or approval records.
+  const flags = fs.constants.O_CREAT | fs.constants.O_RDWR | fs.constants.O_NOFOLLOW;
+  const fileDescriptor = fs.openSync(DB_PATH, flags, 0o600);
+  fs.closeSync(fileDescriptor);
+  fs.chmodSync(DB_PATH, 0o600);
+}
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('secure_delete = ON');
 if (process.platform !== 'win32') {
+  // Re-assert modes for existing databases and SQLite-created sidecar files.
   fs.chmodSync(DB_DIR, 0o700);
   fs.chmodSync(DB_PATH, 0o600);
 }
@@ -165,13 +190,24 @@ export function purgeTraceDataBefore(timestamp, { includeSessionMetadata = false
       : 0;
     return { deletedTurns, deletedApprovals, deletedSessions };
   })();
-  db.pragma('wal_checkpoint(TRUNCATE)');
-  return result;
+  const checkpoint = db.pragma('wal_checkpoint(TRUNCATE)')[0];
+  const validCheckpoint = checkpoint && Number.isInteger(checkpoint.busy) && Number.isInteger(checkpoint.log) && Number.isInteger(checkpoint.checkpointed);
+  const framesRemaining = validCheckpoint && checkpoint.log >= 0
+    ? Math.max(0, checkpoint.log - checkpoint.checkpointed)
+    : 0;
+  return {
+    ...result,
+    storageCheckpoint: {
+      complete: Boolean(validCheckpoint && checkpoint.busy === 0 && framesRemaining === 0),
+      busy: validCheckpoint ? checkpoint.busy : null,
+      framesRemaining
+    }
+  };
 }
 
 export function applyTraceRetention(now = Date.now()) {
   const rawDays = process.env.AGENTGDB_TRACE_RETENTION_DAYS;
-  if (rawDays === undefined || rawDays === '') return 0;
+  if (rawDays === undefined || rawDays === '') return { turns: 0, approvals: 0, sessions: 0 };
   const days = Number(rawDays);
   if (!Number.isFinite(days) || days < 1 || days > 3650) {
     throw new Error('AGENTGDB_TRACE_RETENTION_DAYS must be an integer from 1 to 3650');
@@ -180,13 +216,13 @@ export function applyTraceRetention(now = Date.now()) {
   const cutoff = now - days * 24 * 60 * 60 * 1000;
   const result = db.transaction(() => {
     const deletedTurns = db.prepare('DELETE FROM turns WHERE created_at < ?').run(cutoff).changes;
-    db.prepare('DELETE FROM approvals WHERE created_at < ?').run(cutoff);
+    const deletedApprovals = db.prepare('DELETE FROM approvals WHERE created_at < ?').run(cutoff).changes;
     const deletedSessions = db.prepare(`
       DELETE FROM sessions
       WHERE created_at < ?
         AND NOT EXISTS (SELECT 1 FROM turns WHERE turns.session_id = sessions.id)
     `).run(cutoff).changes;
-    return deletedTurns + deletedSessions;
+    return { turns: deletedTurns, approvals: deletedApprovals, sessions: deletedSessions };
   })();
   db.pragma('wal_checkpoint(TRUNCATE)');
   return result;
@@ -238,7 +274,7 @@ export function createApproval({ id, sessionId, action, risk, expiresAt }) {
   db.prepare(`INSERT INTO approvals
     (id, session_id, action_json, risk, status, created_at, expires_at)
     VALUES (?, ?, ?, ?, 'PENDING', ?, ?)`)
-    .run(id, sessionId, JSON.stringify(action), risk, Date.now(), expiresAt);
+    .run(id, sessionId, JSON.stringify(redactSensitive(action)), risk, Date.now(), expiresAt);
   return getApproval(id);
 }
 
@@ -261,8 +297,9 @@ export function getRecentApprovals(limit = 50) {
 
 export function decideApproval(id, decision, decidedBy = 'local-operator', reason = null) {
   if (!['APPROVED', 'DENIED'].includes(decision)) throw new TypeError('Invalid approval decision');
+  const safeReason = typeof reason === 'string' ? redactSensitiveText(reason) : reason;
   const result = db.prepare(`UPDATE approvals SET status=?, decided_at=?, decided_by=?, decision_reason=?
-    WHERE id=? AND status='PENDING' AND expires_at>?`).run(decision, Date.now(), decidedBy, reason, id, Date.now());
+    WHERE id=? AND status='PENDING' AND expires_at>?`).run(decision, Date.now(), decidedBy, safeReason, id, Date.now());
   return result.changes === 1 ? getApproval(id) : null;
 }
 
@@ -273,7 +310,7 @@ export function expireApproval(id) {
 
 export function recordApprovalExecution(id, status, result = null) {
   if (!['COMPLETED', 'FAILED', 'CANCELLED'].includes(status)) throw new TypeError('Invalid managed action result');
-  const summary = result === null ? null : JSON.stringify(result);
+  const summary = result === null ? null : JSON.stringify(redactSensitive(result));
   return db.prepare("UPDATE approvals SET execution_status=?, execution_result=? WHERE id=? AND status='APPROVED' AND execution_status='NOT_STARTED'")
     .run(status, summary, id).changes === 1;
 }

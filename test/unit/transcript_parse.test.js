@@ -17,6 +17,17 @@ test('transcript parser reports malformed JSONL lines without exposing the line 
   assert.doesNotMatch(JSON.stringify(result.parseErrors), /private malformed/);
 });
 
+test('transcript parser enforces a byte limit while streaming', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentgdb-transcript-limit-'));
+  const file = path.join(dir, 'oversized.jsonl');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(file, `${JSON.stringify({ type: 'session_meta', payload: { cwd: 'fixture' } })}\n`);
+  await assert.rejects(
+    () => new UniversalAgentWatcher({ maxTranscriptBytes: 8 }).parseSessionTranscript(file),
+    (error) => error.code === 'TRANSCRIPT_TOO_LARGE' && /configured 8-byte limit/.test(error.message)
+  );
+});
+
 test('hostile transcript markup remains data and the dashboard renders event text as text', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentgdb-hostile-transcript-'));
   const file = path.join(dir, 'session.jsonl');

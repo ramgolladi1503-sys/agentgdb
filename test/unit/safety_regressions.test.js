@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { VirtualOverlayFilesystem } from '../../src/vfs/virtual_filesystem.js';
 import { AgentGdbMcpServer } from '../../src/mcp/mcp_server.js';
@@ -39,7 +40,7 @@ test('default project registry is empty and contains no developer paths', (t) =>
   // Run in a child process so module-level HOME-derived paths are isolated.
   const { spawnSync } = process.getBuiltinModule('node:child_process');
   const script = `import { loadProjects } from ${JSON.stringify(path.resolve(__dirname, '../../src/project_registry.js'))}; console.log(JSON.stringify(loadProjects()));`;
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   const config = JSON.parse(result.stdout);
   assert.deepEqual(config, { activeProjectId: null, projects: [] });
@@ -47,6 +48,39 @@ test('default project registry is empty and contains no developer paths', (t) =>
     assert.equal(fs.statSync(path.join(home, '.agentgdb')).mode & 0o777, 0o700);
     assert.equal(fs.statSync(path.join(home, '.agentgdb', 'projects.json')).mode & 0o777, 0o600);
   }
+});
+
+test('database initialization refuses symlinked state directories and database files', (t) => {
+  if (process.platform === 'win32') return t.skip('Unix symlink and mode semantics are tested on POSIX; Windows ACL validation is a separate release gate.');
+  const dbModule = new URL('../../src/db.js', import.meta.url).href;
+  const importDatabase = (home) => {
+    const script = `await import(${JSON.stringify(dbModule)});`;
+    return spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: 'utf8'
+    });
+  };
+
+  const dirHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentgdb-symlink-dir-'));
+  const outsideDir = path.join(dirHome, 'outside');
+  fs.mkdirSync(outsideDir);
+  fs.symlinkSync(outsideDir, path.join(dirHome, '.agentgdb'), 'dir');
+  t.after(() => fs.rmSync(dirHome, { recursive: true, force: true }));
+  const dirResult = importDatabase(dirHome);
+  assert.notEqual(dirResult.status, 0);
+  assert.match(dirResult.stderr, /database directory must be a real directory/);
+  assert.equal(fs.existsSync(path.join(outsideDir, 'traces.db')), false);
+
+  const fileHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentgdb-symlink-db-'));
+  const dbDir = path.join(fileHome, '.agentgdb');
+  const outsideFile = path.join(fileHome, 'outside.db');
+  fs.mkdirSync(dbDir);
+  fs.writeFileSync(outsideFile, 'must remain untouched');
+  fs.symlinkSync(outsideFile, path.join(dbDir, 'traces.db'), 'file');
+  t.after(() => fs.rmSync(fileHome, { recursive: true, force: true }));
+  const fileResult = importDatabase(fileHome);
+  assert.notEqual(fileResult.status, 0);
+  assert.match(fileResult.stderr, /database file must be a regular file/);
+  assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'must remain untouched');
 });
 
 test('MCP approval is not falsely reported as pending', async () => {
@@ -83,13 +117,23 @@ test('server safety defaults are loopback, token-gated remotely, and payload cap
   assert.match(liveWatcher, /this\.driftStatus = driftEvaluation\.isDrift \? 'DRIFT_DETECTED' : 'IN_SCOPE'/);
 });
 
-test('trace retention purges expired sessions and turns when configured', (t) => {
+test('dashboard surfaces WebSocket failures and retries with capped backoff', () => {
+  const dashboard = fs.readFileSync(path.join(__dirname, '../../public/index.html'), 'utf8');
+  assert.match(dashboard, /id="connectionStatus"/);
+  assert.match(dashboard, /socket\.onerror/);
+  assert.match(dashboard, /socket\.onclose/);
+  assert.match(dashboard, /maxDashboardReconnectDelay = 30000/);
+  assert.match(dashboard, /Dashboard disconnected; retrying in/);
+  assert.match(dashboard, /connectDashboardSocket\(\);/);
+});
+
+test('trace retention reports and purges expired sessions, turns, and approvals when configured', (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentgdb-retention-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const { spawnSync } = process.getBuiltinModule('node:child_process');
   const dbPath = path.resolve(__dirname, '../../src/db.js');
   const script = `
-    import db, { createSession, recordTurn, applyTraceRetention, getAllSessions, getTurnsForSession } from ${JSON.stringify(dbPath)};
+    import db, { createSession, createApproval, recordTurn, applyTraceRetention, getAllSessions, getTurnsForSession } from ${JSON.stringify(dbPath)};
     const now = Date.now();
     createSession('old', 'old', 'test');
     createSession('new', 'new', 'test');
@@ -100,13 +144,15 @@ test('trace retention purges expired sessions and turns when configured', (t) =>
     makeTurn('old-turn', 'old', now - 8 * 86400000);
     makeTurn('new-turn', 'new', now);
     makeTurn('recent-turn-long-session', 'long-running', now);
+    createApproval({ id: 'old-approval', sessionId: 'old', action: { name: 'write_file' }, risk: 'MUTATING', expiresAt: now - 8 * 86400000 });
+    db.prepare('UPDATE approvals SET created_at = ? WHERE id = ?').run(now - 8 * 86400000, 'old-approval');
     console.log(JSON.stringify({ purged: applyTraceRetention(now), sessions: getAllSessions().map(s => s.id).sort(), oldTurns: getTurnsForSession('old').length, newTurns: getTurnsForSession('new').length, longRunningTurns: getTurnsForSession('long-running').length }));
   `;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
-    env: { ...process.env, HOME: home, AGENTGDB_TRACE_RETENTION_DAYS: '7' }, encoding: 'utf8'
+    env: { ...process.env, HOME: home, USERPROFILE: home, AGENTGDB_TRACE_RETENTION_DAYS: '7' }, encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { purged: 2, sessions: ['long-running', 'new'], oldTurns: 0, newTurns: 1, longRunningTurns: 1 });
+  assert.deepEqual(JSON.parse(result.stdout), { purged: { turns: 1, approvals: 1, sessions: 1 }, sessions: ['long-running', 'new'], oldTurns: 0, newTurns: 1, longRunningTurns: 1 });
   if (process.platform !== 'win32') {
     assert.equal(fs.statSync(path.join(home, '.agentgdb')).mode & 0o777, 0o700);
     assert.equal(fs.statSync(path.join(home, '.agentgdb', 'traces.db')).mode & 0o777, 0o600);

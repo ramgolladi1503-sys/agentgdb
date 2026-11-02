@@ -21,24 +21,45 @@ test('trace purge removes selected records and optional summaries without deleti
     createSession('mixed-session','mixed','fixture');
     turn('new-turn','mixed-session',now+100000);
     createApproval({id:'old-approval',sessionId:'old-session',action:{name:'write_file'},risk:'MUTATING',expiresAt:now+60000});
-  `], { cwd: repoRoot, env: { ...process.env, HOME: home }, encoding: 'utf8' });
+  `], { cwd: repoRoot, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: 'utf8' });
   assert.equal(seed.status, 0, seed.stderr);
 
   const appPort = await unusedPort();
-  const daemon = spawn(process.execPath, ['src/server.js'], { cwd: repoRoot, env: { ...process.env, HOME: home, HOST: '127.0.0.1', PORT: String(appPort), AGENTGDB_APPROVAL_TOKEN: 'privacy-purge-test-token-0123456789' }, stdio: 'ignore' });
+  const daemon = spawn(process.execPath, ['src/server.js'], { cwd: repoRoot, env: { ...process.env, HOME: home, USERPROFILE: home, HOST: '127.0.0.1', PORT: String(appPort), AGENTGDB_APPROVAL_TOKEN: 'privacy-purge-test-token-0123456789' }, stdio: 'ignore' });
   let db;
+  let reader;
   t.after(async () => {
     db?.close();
+    reader?.close();
     daemon.kill('SIGTERM');
     if (daemon.exitCode === null) await new Promise((resolve) => daemon.once('exit', resolve));
     fs.rmSync(home, { recursive: true, force: true });
   });
 
   await waitForServer(daemon, appPort);
+  reader = new Database(path.join(home, '.agentgdb', 'traces.db'), { readonly: true });
+  reader.exec('BEGIN');
+  reader.prepare('SELECT id FROM turns ORDER BY id').all();
   const before = Date.now() + 1000;
-  const response = await fetch(`http://127.0.0.1:${appPort}/api/traces?before=${before}&includeSessionMetadata=true`, { method: 'DELETE' });
+  const response = await fetch(`http://127.0.0.1:${appPort}/api/traces?before=${before}&includeSessionMetadata=true`, { method: 'DELETE', headers: { 'x-agentgdb-approval-token': 'privacy-purge-test-token-0123456789' } });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { deletedTurns: 1, deletedApprovals: 1, deletedSessions: 1 });
+  const deletion = await response.json();
+  assert.equal(deletion.deletedTurns, 1);
+  assert.equal(deletion.deletedApprovals, 1);
+  assert.equal(deletion.deletedSessions, 1);
+  assert.equal(deletion.storageCheckpoint.complete, false, 'pinned WAL must not be reported as fully checkpointed');
+  assert.ok(Number.isInteger(deletion.storageCheckpoint.busy));
+
+  reader.exec('ROLLBACK');
+  reader.close();
+  reader = null;
+  const retry = await fetch(`http://127.0.0.1:${appPort}/api/traces?before=${before}&includeSessionMetadata=true`, { method: 'DELETE', headers: { 'x-agentgdb-approval-token': 'privacy-purge-test-token-0123456789' } });
+  assert.equal(retry.status, 200);
+  const retryResult = await retry.json();
+  assert.deepEqual(retryResult, {
+    deletedTurns: 0, deletedApprovals: 0, deletedSessions: 0,
+    storageCheckpoint: { complete: true, busy: 0, framesRemaining: 0 }
+  });
 
   db = new Database(path.join(home, '.agentgdb', 'traces.db'), { readonly: true });
   assert.deepEqual(db.prepare('SELECT id FROM turns ORDER BY id').all().map((row) => row.id), ['new-turn']);

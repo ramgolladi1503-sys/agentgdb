@@ -1,6 +1,8 @@
 # AgentGDB historical engineering backlog
 
 > **Unverified backlog:** tasks below are proposals, not implemented capabilities or a delivery commitment. Check [FEATURE_STATUS.md](FEATURE_STATUS.md) for source-backed status. No industry leadership or production-readiness claim is made.
+>
+> **Status: archived and frozen.** Do not treat these ideas as active work or expand the feature set until the core local supervised-session workflow passes supported-platform installs, a real coding-agent task, independent security review, and an observed developer pilot.
 
 ---
 

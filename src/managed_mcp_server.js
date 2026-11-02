@@ -3,23 +3,23 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadProjects } from './project_registry.js';
 import { createApproval, getApproval, decideApproval, expireApproval, recordApprovalExecution } from './db.js';
 import { evaluateScopePolicy, inspectToolCall, pathStaysInWorkspace } from './security/scope_policy.js';
-import { containsSensitiveValue, redactSensitive } from './security/redaction.js';
+import { containsSensitiveValue, redactSensitive, redactSensitiveText } from './security/redaction.js';
+import { describeCommandExecutable } from './security/command_policy.js';
+import { runManagedCommand } from './security/managed_command_runner.js';
 
-const execFileAsync = promisify(execFile);
 const DAEMON_URL = process.env.AGENTGDB_DAEMON_URL || 'http://127.0.0.1:9099';
 const APPROVAL_TIMEOUT_MS = Number(process.env.AGENTGDB_APPROVAL_TIMEOUT_MS || 300000);
 const COMMAND_TIMEOUT_MS = Number(process.env.AGENTGDB_COMMAND_TIMEOUT_MS || 120000);
 if (!Number.isInteger(APPROVAL_TIMEOUT_MS) || APPROVAL_TIMEOUT_MS < 1000 || APPROVAL_TIMEOUT_MS > 3600000) throw new Error('AGENTGDB_APPROVAL_TIMEOUT_MS must be an integer from 1000 to 3600000');
 if (!Number.isInteger(COMMAND_TIMEOUT_MS) || COMMAND_TIMEOUT_MS < 1000 || COMMAND_TIMEOUT_MS > 600000) throw new Error('AGENTGDB_COMMAND_TIMEOUT_MS must be an integer from 1000 to 600000');
 const MAX_FILE_BYTES = 1024 * 1024;
+const POLICY_SNAPSHOT_VERSION = 1;
 
 function activePolicy() {
   const config = loadProjects();
@@ -31,6 +31,21 @@ function activePolicy() {
   try { stat = fs.statSync(project.workspacePath); } catch { throw new Error('Configured workspace is unavailable.'); }
   if (!stat.isDirectory()) throw new Error('Configured workspace path is not a directory.');
   return { project, scope: { allowedPaths: project.allowedPaths, forbiddenPaths: project.forbiddenPaths, allowedCommands: project.allowedCommands || [] } };
+}
+
+function snapshotPolicy(project, scope) {
+  const snapshot = {
+    version: POLICY_SNAPSHOT_VERSION,
+    workspaceId: project.id,
+    workspacePath: fs.realpathSync(project.workspacePath),
+    allowedPaths: [...scope.allowedPaths].sort(),
+    forbiddenPaths: [...scope.forbiddenPaths].sort(),
+    allowedCommands: [...scope.allowedCommands].sort()
+  };
+  return {
+    snapshot,
+    fingerprint: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
+  };
 }
 
 function resolveCheckedPath(relativePath, project, scope) {
@@ -61,13 +76,26 @@ function delay(ms, signal) {
   });
 }
 
-async function requestApproval(action, project, signal) {
+async function requestApproval(action, project, policy, signal) {
   if (!await dashboardIsAvailable()) throw new Error('Approval dashboard unavailable; action denied without execution.');
   const id = randomUUID();
+  const approvedAction = {
+    ...action,
+    approvalContext: {
+      workspaceId: project.id,
+      workspacePath: policy.snapshot.workspacePath,
+      policyVersion: policy.snapshot.version,
+      policyFingerprint: policy.fingerprint,
+      policy: policy.snapshot
+    }
+  };
+  if (containsSensitiveValue(approvedAction)) {
+    throw new Error('Approval details contain credential-like content that cannot be shown safely; action denied.');
+  }
   createApproval({
     id,
     sessionId: `mcp-${process.pid}`,
-    action: redactSensitive({ ...action, workspaceId: project.id, workspacePath: project.workspacePath }),
+    action: approvedAction,
     risk: 'MUTATING',
     expiresAt: Date.now() + APPROVAL_TIMEOUT_MS
   });
@@ -103,7 +131,9 @@ async function performRead(args) {
   const target = resolveCheckedPath(args.path, project, scope);
   const stat = fs.statSync(target);
   if (!stat.isFile() || stat.size > MAX_FILE_BYTES) throw new Error('Only files up to 1 MiB can be read through this adapter.');
-  return fs.readFileSync(target, 'utf8');
+  // Workspace files can contain credentials even when the path is allowlisted.
+  // Redact known patterns before the bytes cross the MCP boundary to an agent.
+  return redactSensitiveText(fs.readFileSync(target, 'utf8'));
 }
 
 async function performWrite(args, context) {
@@ -114,12 +144,14 @@ async function performWrite(args, context) {
   if (containsSensitiveValue(args)) throw new Error('Credential-like value detected; write denied.');
   const target = resolveCheckedPath(args.path, project, scope);
   if (Buffer.byteLength(args.content, 'utf8') > MAX_FILE_BYTES) throw new Error('Writes are limited to 1 MiB.');
-  const approvalId = await requestApproval(check.action, project, context.mcpReq.signal);
+  const policy = snapshotPolicy(project, scope);
+  const approvalId = await requestApproval(check.action, project, policy, context.mcpReq.signal);
   let tempPath;
   const startedAt = Date.now();
   try {
     const latest = activePolicy();
     if (latest.project.id !== project.id || latest.project.workspacePath !== project.workspacePath) throw new Error('Active workspace changed while approval was pending.');
+    if (snapshotPolicy(latest.project, latest.scope).fingerprint !== policy.fingerprint) throw new Error('Workspace policy changed while approval was pending.');
     const checkedTarget = resolveCheckedPath(args.path, latest.project, latest.scope);
     fs.mkdirSync(path.dirname(checkedTarget), { recursive: true });
     if (!pathStaysInWorkspace(args.path, latest.project.workspacePath)) throw new Error('Path changed during approval; write denied.');
@@ -141,29 +173,47 @@ async function performCommand(args, context) {
   const { project, scope } = activePolicy();
   const commandIdentity = JSON.stringify([args.executable, ...args.args]);
   if (!scope.allowedCommands.includes(commandIdentity)) throw new Error('Command is not an exact member of the active workspace allowlist.');
-  const action = { name: 'run_command', executable: args.executable, args: args.args, commandIdentity };
+  const workspacePath = fs.realpathSync(project.workspacePath);
+  const executableIdentity = await describeCommandExecutable(args.executable, workspacePath);
+  const action = {
+    name: 'run_command', executable: args.executable, resolvedExecutable: executableIdentity.path,
+    executableSha256: executableIdentity.sha256, args: args.args, commandIdentity
+  };
   if (containsSensitiveValue(action)) throw new Error('Credential-like command argument detected; command denied.');
-  const approvalId = await requestApproval(action, project, context.mcpReq.signal);
+  const policy = snapshotPolicy(project, scope);
+  const approvalId = await requestApproval(action, project, policy, context.mcpReq.signal);
   const startedAt = Date.now();
   try {
     const latest = activePolicy();
-    if (latest.project.id !== project.id || latest.project.workspacePath !== project.workspacePath || !latest.scope.allowedCommands.includes(commandIdentity)) {
+    if (latest.project.id !== project.id || fs.realpathSync(latest.project.workspacePath) !== workspacePath || snapshotPolicy(latest.project, latest.scope).fingerprint !== policy.fingerprint || !latest.scope.allowedCommands.includes(commandIdentity)) {
       throw new Error('Workspace policy changed while approval was pending.');
+    }
+    const latestExecutableIdentity = await describeCommandExecutable(args.executable, workspacePath);
+    if (latestExecutableIdentity.path !== executableIdentity.path || latestExecutableIdentity.sha256 !== executableIdentity.sha256) {
+      throw new Error('Command executable changed while approval was pending.');
     }
     const env = {};
     for (const key of ['PATH', 'HOME', 'USERPROFILE', 'SystemRoot', 'ComSpec', 'PATHEXT', 'TMP', 'TEMP', 'LANG', 'LC_ALL']) {
       if (process.env[key]) env[key] = process.env[key];
     }
-    const result = await execFileAsync(args.executable, args.args, {
-      cwd: fs.realpathSync(project.workspacePath), env, shell: false,
-      timeout: COMMAND_TIMEOUT_MS, maxBuffer: MAX_FILE_BYTES, windowsHide: true,
+    const result = await runManagedCommand(executableIdentity.path, args.args, {
+      cwd: workspacePath,
+      env,
+      timeoutMs: COMMAND_TIMEOUT_MS,
+      maxOutputBytes: MAX_FILE_BYTES,
       signal: context.mcpReq.signal
     });
     recordApprovalExecution(approvalId, 'COMPLETED', { durationMs: Date.now() - startedAt, exitCode: 0 });
-    return `Command completed (exit 0).\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`;
+    return {
+      isError: false,
+      text: `Command completed (exit 0).\nstdout:\n${redactSensitiveText(result.stdout)}\nstderr:\n${redactSensitiveText(result.stderr)}`
+    };
   } catch (error) {
     recordApprovalExecution(approvalId, 'FAILED', { durationMs: Date.now() - startedAt, exitCode: Number.isInteger(error.code) ? error.code : null, error: String(error.message).slice(0, 300) });
-    return `Command failed. ${String(error.message).slice(0, 500)}\nstdout:\n${error.stdout || ''}\nstderr:\n${error.stderr || ''}`;
+    return {
+      isError: true,
+      text: `Command failed. ${redactSensitiveText(String(error.message).slice(0, 500))}\nstdout:\n${redactSensitiveText(error.stdout || '')}\nstderr:\n${redactSensitiveText(error.stderr || '')}`
+    };
   }
 }
 
@@ -183,7 +233,10 @@ export function createManagedMcpServer() {
     title: 'Run exact allowlisted command',
     description: 'Run an executable with an argument array, without a shell. The exact JSON array [executable,...args] must be in the workspace allowedCommands list and requires operator approval.',
     inputSchema: z.object({ executable: z.string().min(1).max(256), args: z.array(z.string().max(4096)).max(64).default([]) }).strict()
-  }, async (args, context) => ({ content: [{ type: 'text', text: await performCommand(args, context) }] }));
+  }, async (args, context) => {
+    const result = await performCommand(args, context);
+    return { content: [{ type: 'text', text: result.text }], ...(result.isError ? { isError: true } : {}) };
+  });
   return server;
 }
 
