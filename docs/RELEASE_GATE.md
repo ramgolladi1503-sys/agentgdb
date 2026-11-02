@@ -1,0 +1,72 @@
+# AgentGDB release gate
+
+**Current release status: BLOCKED — experimental local use only.**
+
+A release may be described as production ready only when every gate below has evidence tied to the exact release commit. Unit tests, simulated personas, local MCP protocol tests, and repository documentation do not substitute for the named evidence. The release owner records the commit SHA and links the evidence before changing this status.
+
+The automated evidence validator checks required fields, exact SHA/tag binding, repository-local release notes, and basic HTTPS URL shape. It does not fetch or authenticate external evidence, verify reviewer independence, confirm pilot participants, or prove that a linked artifact supports its claim. A successful validator run is therefore a manifest-format check; the release owner must open and independently verify every linked artifact before the release can pass. Evidence is carried in the annotated tag message because a manifest committed inside a release commit cannot contain that same commit's final SHA without a self-reference.
+
+## Required evidence
+
+1. **CI:** the required GitHub Actions workflow passes on the release commit, including `npm ci`, `npm audit --audit-level=moderate`, CSS build, and the full test suite.
+2. **Supported platforms and runtimes:** clean install and documented smoke test pass on macOS, Linux, and Windows with Node 22.x, 24.x, and 26.x. Record OS version, Node version, and output for each matrix job.
+3. **Real agent path:** at least one named supported coding-agent host performs a bounded disposable-workspace task through the AgentGDB MCP adapter. Verify an allowlisted read, an approved write, an approved command, a denied command, timeout, daemon restart, and cancellation. Confirm the host's alternate filesystem and terminal tools are disabled for this run. Record the host/version and evidence; MCP discovery alone does not satisfy this gate.
+4. **Security review:** an independent reviewer examines workspace/path races, process command policy, approval identity and recovery, auth, secret retention, hostile transcript inputs, and deletion behavior. Record reviewer, date, commit SHA, findings, and disposition. Critical/high findings block release.
+5. **Release notes:** notes state supported host/platform versions, known bypasses and sandbox limits, storage/capture defaults, deletion limits, and all known unverified capabilities. Withdrawn synthetic evaluation claims must not be repeated. [A draft exists](RELEASE_NOTES_DRAFT.md), but it is not reviewed or approved for release and must be reconciled with the exact release commit.
+6. **Operator readiness:** a real-user pilot validates install, setup, approval comprehension, data deletion, and recovery. Report participant count/method accurately; do not imply a larger survey than was run.
+7. **Distribution terms:** the repository owner chooses the license, declares it in `package.json`, and includes the corresponding non-empty `LICENSE` file in the package. The release validator checks that both exist but does not determine whether the chosen terms are legally appropriate.
+
+## Current evidence snapshot (2026-11-02)
+
+- At an earlier scope-policy checkpoint, an ARM64 macOS host using x64 Node binaries (Darwin x64 process) passed full suites and installed-package smoke on Node 22.23.4, 24.22.2, and 26.13.0. Scope-policy coverage includes ambiguous wildcard rejection, invalid stored-policy denial, and exact-path rules that do not authorize descendants. A real stdio MCP integration test confirms an exact-only allowlist denies a descendant write before creating an approval record or file. These historical runs used the existing checkout and installed dependencies; they are not clean-copy installs or Linux/Windows results. Hosted matrix results and exact-commit evidence remain absent. See [local validation record](evaluation/LOCAL_VALIDATION_2026-11-02.md).
+- The repository owner selected MIT on 2026-11-02. `package.json` and the lockfile declare `MIT`, and the repository includes the corresponding MIT `LICENSE` text with the public repository-owner handle in its copyright notice. The release validator checks that metadata and file exist, but it does not determine legal suitability. npm publication is not authorized or performed. All other release gates remain outstanding.
+- `npm audit --audit-level=moderate`: zero reported vulnerabilities.
+- Dashboard stylesheet build passes and uses local assets.
+- The project registry migration no longer embeds developer-specific absolute workspace/transcript paths. Migration regression fixtures use temporary paths and verify unrelated projects sharing legacy IDs are retained. Project switching starts a candidate transcript watcher before changing active-project state; integration coverage verifies that an injected candidate watcher startup failure leaves the active project and previous observer unchanged. Cross-platform behavior remains unverified.
+- Startup persistence maintenance now emits the configured retention window, per-table deletion counts, and the number of pending approvals rejected after restart. Unit coverage verifies expired approval counts; restart integration coverage verifies the emitted rejection count. This improves local auditability but does not restore interrupted approvals.
+- Loopback WebSocket connections now require the operator token before joining the live event broadcast. Integration coverage verifies the unauthenticated challenge, invalid-token denial, authenticated connection, and existing cross-origin rejection. This prevents unauthenticated local WebSocket clients from using the live stream to bypass the `/api/*` token check; the shared token does not protect against hostile processes running as the same OS user.
+- Release evidence is now carried in the annotated tag message and extracted only after verifying the tag's target SHA. This removes the impossible requirement that a manifest committed inside a release commit contain that same commit's final SHA. Local fixture tests exercise target mismatch and lightweight-tag rejection; no real release evidence or hosted tag workflow has run.
+- Path normalization rejects drive-relative, drive-absolute, and UNC paths. Policy path comparisons are case-insensitive when evaluated as Windows paths; a unit test simulates this behavior. Windows runtime behavior remains unverified pending the CI matrix.
+- On Unix, database directories/files and project-registry directories/files reject symlinked paths before sensitive access; regression tests cover these denials. Registry checks also reject multiply linked config files. This newest hard-link test has only run on the current macOS checkout; Windows ACL behavior remains unverified.
+- Approval integration tests cover explicit denial records, approval-list authentication, policy changes while writes or commands are pending, daemon outage while approval is pending, timeout, cancellation, and pending-approval rejection after restart. The proxy records workspace/policy identity in its approval record and rechecks policy after approval; the new regression confirms the call is withheld if policy changes while pending. Bounded Codex host runs verified an allowlisted read, operator-approved write, operator-approved exact command, denial of a non-allowlisted command, host-level timeout, denial on approval-service loss, rejection after daemon restart, and calling-agent cancellation, with the native shell disabled. These runs are on an uncommitted local candidate and must be repeated or bound to the exact release commit. See the [real-agent run record](evaluation/REAL_AGENT_RUN_2026-11-02.md).
+- Claude Code CLI connected to the AgentGDB stdio MCP server and discovered it. No model-driven action task was run.
+- Gemini CLI 0.25.2 connected to the AgentGDB stdio MCP server with built-in tools disabled and only the AgentGDB MCP server allowed. The bounded task stopped at authentication because no supported credential or auth method was configured; no model-driven action ran.
+- Earlier Codex configurations using MCP approval mode `auto` were blocked before reaching AgentGDB. A later bounded run used temporary per-server/per-tool MCP mode `approve` while preserving AgentGDB's separate token-authenticated approval gate. Codex CLI 0.166.0 completed the read/write/command/denial checks described in the linked run record. No global approval or sandbox bypass was used.
+- A Codex interactive CLI attempt with an isolated temporary home and only the AgentGDB MCP server configured stopped at Codex's temporary-repository trust screen before a task began. Desktop UI follow-up was unavailable because the Mac was locked. This does not verify or falsify interactive MCP dispatch; an interactive task remains outstanding.
+- Captured single-turn playback passed a restart integration test, validated the stored input/output hashes, and reported zero external calls. Multi-turn agent replay is unverified.
+- Claude Code reports no logged-in account on this machine, and Gemini CLI reports no configured auth method or credential. Codex completed the bounded real-agent action and failure-path checks on the current uncommitted macOS candidate. Missing: green remote macOS/Linux/Windows workflow on an exact release revision, clean installs on Linux and Windows, independent security review, observed user pilot, and committed release-bound evidence.
+- The GitHub CLI currently lists no Actions runs for this repository and one draft PR. The remote feature branch remains at `7eec651`; the local branch is at `e413c60` with three commits ahead and uncommitted work. The default branch `master` requires pull requests, strict status `CI / required`, and conversation resolution; admin enforcement is on and force-push/deletion are disabled. The PR rule requires zero approvals because only one collaborator currently has write access. It prevents direct pushes and ensures the merge CI path, but it does not provide peer review. The feature branch remains unprotected. The required check is defined in the local candidate workflow but has not run remotely; no CI result covers the current candidate. The tag workflow's ancestry check explicitly uses Bash so the same environment-variable syntax works on Windows runners.
+- This working candidate is not a release candidate because required evidence above is missing.
+
+## Release owner procedure
+
+1. Review and commit the candidate changes; identify the exact commit SHA.
+2. Verify `master` still requires `CI / required` and collect all platform results for the exact release SHA.
+3. Attach the real-agent run record and independent security review for that SHA.
+4. Write release notes from verified behavior and current limitations.
+5. Have the release owner verify every required item above. If any evidence is absent, keep the release experimental and do not publish a production-ready claim.
+
+## Automated tag gate
+
+Pushing a version tag (`vMAJOR.MINOR.PATCH`, with an optional prerelease suffix) starts [the release workflow](../.github/workflows/release.yml). It first requires the tagged commit to be reachable from the repository's default branch, then runs install, audit, CSS build, all tests, and the installed-package CLI/daemon/dashboard/demo/MCP read and approved-write smoke on Node 22.x, 24.x, and 26.x for Linux, macOS, and Windows. The evidence job runs only after all nine platform/runtime jobs pass.
+
+Both workflows grant only `contents: read`. CI cancels superseded runs for the same ref and bounds matrix jobs to 30 minutes; release validation jobs have explicit timeouts. `master` requires pull requests, the stable `CI / required` check, and conversation resolution; the rule applies to administrators and blocks force pushes and deletion. The PR rule requires zero approvals because there is currently only one collaborator with write access. The local workflow has not yet run remotely, so the required check is configured but unexercised. Add a second maintainer and require independent approvals before treating this as a peer-reviewed delivery process.
+
+After committing the release candidate and release notes, record its exact SHA. Copy [the evidence template](release-evidence.template.json) to a temporary JSON file outside the repository and fill it with evidence for that exact candidate SHA. The validator requires all real-agent checks listed above, a security review with zero critical/high findings, an observed pilot of at least eight participants, and reviewed release notes that document supported hosts/platforms, bypasses, sandbox limits, capture defaults, and deletion limits. Every evidence record must include a link and the exact candidate SHA. Placeholder values fail closed.
+
+Create an unsigned annotated tag whose message is exactly the completed JSON object. The current gate does not verify tag signatures, so signed tags fail closed. The evidence remains outside the candidate commit, avoiding a self-referential SHA:
+
+```bash
+git tag -a v1.2.3 <candidate-sha> -F /path/to/release-evidence.json
+```
+
+The tag workflow verifies that the annotated tag points to its event SHA, extracts its JSON message into the ignored, generated `docs/release-evidence.json`, then validates it after the full platform matrix passes. Lightweight tags fail closed. For local validation, first extract the manifest from the annotated tag, then run the validator:
+
+```bash
+node scripts/extract-release-tag-evidence.js --tag v1.2.3 --sha "$(git rev-parse 'v1.2.3^{commit}')"
+npm run validate:release -- --tag v1.2.3 --sha "$(git rev-parse HEAD)"
+```
+
+Do not commit the generated `docs/release-evidence.json`, publish a GitHub Release, or claim production readiness unless the tag workflow passes and the release owner has independently verified each linked artifact.
+
+The default branch requires pull requests and the stable `CI / required` status check before merging. That aggregator succeeds only when every Linux, macOS, and Windows test-matrix job passes. The current rule requires the branch to be up to date, applies to administrators, blocks direct pushes, and requires conversation resolution; it currently requires zero approvals because the repository has one collaborator. Add an independent maintainer and require at least one approving review before describing routine delivery as peer-reviewed. A green tag gate does not replace repository settings or independent human review of linked evidence.

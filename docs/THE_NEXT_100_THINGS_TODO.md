@@ -1,6 +1,8 @@
-# The AgentGDB Master Roadmap: 100 Engineering Tasks to Category Dominance
+# AgentGDB historical engineering backlog
 
-This document outlines the next 100 concrete, prioritised engineering tasks to evolve AgentGDB into the industry standard time-travel debugger and drift-prevention runtime for autonomous coding agents.
+> **Unverified backlog:** tasks below are proposals, not implemented capabilities or a delivery commitment. Check [FEATURE_STATUS.md](FEATURE_STATUS.md) for source-backed status. No industry leadership or production-readiness claim is made.
+>
+> **Status: archived and frozen.** Do not treat these ideas as active work or expand the feature set until the core local supervised-session workflow passes supported-platform installs, a real coding-agent task, independent security review, and an observed developer pilot.
 
 ---
 

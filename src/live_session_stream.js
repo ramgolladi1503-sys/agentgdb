@@ -1,5 +1,5 @@
 import fs from 'fs';
-import readline from 'readline';
+import { consumeJsonlFile, MAX_TRANSCRIPT_BYTES, transcriptTooLargeError } from './transcript_limits.js';
 
 /**
  * LiveSessionStreamWatcher
@@ -7,7 +7,7 @@ import readline from 'readline';
  * Automatically extracts the active user goal and streams new steps in real-time over WebSocket.
  */
 export class LiveSessionStreamWatcher {
-  constructor(filePath, scope = {}, onNewStep = () => {}, onDriftAlert = () => {}) {
+  constructor(filePath, scope = {}, onNewStep = () => {}, onDriftAlert = () => {}, onError = () => {}, options = {}) {
     this.filePath = filePath;
     this.scope = {
       coreGoals: scope.coreGoals || [],
@@ -16,9 +16,15 @@ export class LiveSessionStreamWatcher {
     };
     this.onNewStep = onNewStep;
     this.onDriftAlert = onDriftAlert;
-    this.lastProcessedLine = 0;
+    this.onError = onError;
+    this.maxTranscriptBytes = options.maxTranscriptBytes ?? MAX_TRANSCRIPT_BYTES;
+    this.fileOffset = 0;
+    this.pendingBuffer = Buffer.alloc(0);
+    this.lineCount = 0;
+    this.readInProgress = false;
     this.sessionStartTime = null;
     this.activeGoal = 'Discovering active goal from agent trajectory...';
+    this.driftStatus = 'UNKNOWN';
     this.isWatching = false;
     this.watcher = null;
   }
@@ -36,21 +42,21 @@ export class LiveSessionStreamWatcher {
   }
 
   async start() {
-    this.isWatching = true;
     await this.scanInitialFile();
+    this.isWatching = true;
 
     // Set up file change watcher
-    if (fs.existsSync(this.filePath)) {
+    if (fs.existsSync(this.filePath) && fs.statSync(this.filePath).isFile()) {
       this.watcher = fs.watch(this.filePath, async (eventType) => {
         if (eventType === 'change') {
-          await this.readNewLines();
+          void this.readNewLines();
         }
       });
     }
 
     // Also set fallback interval for streaming JSONL flushes
     this.intervalId = setInterval(() => {
-      this.readNewLines();
+      void this.readNewLines();
     }, 1500);
   }
 
@@ -68,74 +74,105 @@ export class LiveSessionStreamWatcher {
 
   async scanInitialFile() {
     if (!fs.existsSync(this.filePath)) return;
+    const stats = fs.statSync(this.filePath);
+    if (!stats.isFile()) return;
+    if (stats.size > this.maxTranscriptBytes) throw transcriptTooLargeError(this.maxTranscriptBytes);
 
-    const fileStream = fs.createReadStream(this.filePath);
-    const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
-
-    let lineIndex = 0;
-    for await (const line of rl) {
-      lineIndex++;
-      if (!line.trim()) continue;
+    const inspectGoal = (line) => {
+      this.lineCount++;
+      if (!line.trim()) return;
       try {
         const raw = JSON.parse(line);
         const goalCandidate = this.extractActiveGoal(raw);
-        if (goalCandidate) {
-          this.activeGoal = goalCandidate;
-        }
-        if (!this.sessionStartTime && raw.created_at) {
-          this.sessionStartTime = new Date(raw.created_at).getTime();
-        }
-      } catch (e) {}
+        if (goalCandidate) this.activeGoal = goalCandidate;
+        if (!this.sessionStartTime && raw.created_at) this.sessionStartTime = new Date(raw.created_at).getTime();
+      } catch {}
+    };
+    const result = await consumeJsonlFile(this.filePath, {
+      maxBytes: this.maxTranscriptBytes,
+      onLine: inspectGoal
+    });
+    this.fileOffset = result.offset;
+    this.pendingBuffer = result.pendingBuffer;
+    // A transcript ending without a newline may still contain the last goal.
+    if (this.pendingBuffer.length) {
+      const finalLine = this.pendingBuffer.toString('utf8');
+      if (!finalLine.trim()) return;
+      try {
+        const raw = JSON.parse(finalLine);
+        const goalCandidate = this.extractActiveGoal(raw);
+        if (goalCandidate) this.activeGoal = goalCandidate;
+        if (!this.sessionStartTime && raw.created_at) this.sessionStartTime = new Date(raw.created_at).getTime();
+      } catch {}
     }
-
-    this.lastProcessedLine = lineIndex;
   }
 
   async readNewLines() {
-    if (!fs.existsSync(this.filePath)) return;
+    if (!this.isWatching || this.readInProgress) return;
+    this.readInProgress = true;
+    try {
+      const stats = fs.statSync(this.filePath);
+      if (!stats.isFile()) return;
+      if (stats.size > this.maxTranscriptBytes) throw transcriptTooLargeError(this.maxTranscriptBytes);
+      if (stats.size < this.fileOffset) {
+        // A truncated/replaced transcript starts a fresh observation cursor.
+        this.fileOffset = 0;
+        this.pendingBuffer = Buffer.alloc(0);
+        this.lineCount = 0;
+        this.sessionStartTime = null;
+        this.activeGoal = 'Discovering active goal from agent trajectory...';
+        this.driftStatus = 'UNKNOWN';
+      }
+      if (stats.size === this.fileOffset) return;
 
-    const fileStream = fs.createReadStream(this.filePath);
-    const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
-
-    let currentLine = 0;
-    for await (const line of rl) {
-      currentLine++;
-      if (currentLine <= this.lastProcessedLine) continue;
-
-      if (!line.trim()) continue;
-      try {
-        const raw = JSON.parse(line);
-        const goalCandidate = this.extractActiveGoal(raw);
-        if (goalCandidate) {
-          this.activeGoal = goalCandidate;
-        }
-
-        const normalized = this.normalizeStep(raw, currentLine);
-        if (normalized) {
-          const driftEvaluation = this.checkDrift(normalized);
-          normalized.drift = driftEvaluation;
-
-          this.onNewStep({
-            ...normalized,
-            activeGoal: this.activeGoal
-          });
-
-          if (driftEvaluation.isDrift) {
-            this.onDriftAlert({
-              step: normalized.stepIndex,
-              driftCategory: driftEvaluation.category,
-              driftReason: driftEvaluation.reason,
-              activeGoal: this.activeGoal,
-              tool: normalized.toolName,
-              target: normalized.targetPath,
-              timestamp: normalized.timestamp
-            });
-          }
-        }
-      } catch (e) {}
+      const result = await consumeJsonlFile(this.filePath, {
+        maxBytes: this.maxTranscriptBytes,
+        startOffset: this.fileOffset,
+        pendingBuffer: this.pendingBuffer,
+        onLine: (line) => this.processNewLine(line)
+      });
+      this.fileOffset = result.offset;
+      this.pendingBuffer = result.pendingBuffer;
+    } catch (error) {
+      this.stop();
+      this.onError({ code: error.code || 'TRANSCRIPT_READ_FAILED', message: error.code === 'TRANSCRIPT_TOO_LARGE' ? error.message : 'Transcript read failed; observer stopped.' });
+    } finally {
+      this.readInProgress = false;
     }
+  }
 
-    this.lastProcessedLine = currentLine;
+  processNewLine(line) {
+    const currentLine = ++this.lineCount;
+    if (!line.trim()) return;
+    try {
+      const raw = JSON.parse(line);
+      const goalCandidate = this.extractActiveGoal(raw);
+      if (goalCandidate) this.activeGoal = goalCandidate;
+
+      const normalized = this.normalizeStep(raw, currentLine);
+      if (normalized) {
+        const driftEvaluation = this.checkDrift(normalized);
+        this.driftStatus = driftEvaluation.isDrift ? 'DRIFT_DETECTED' : 'IN_SCOPE';
+        normalized.drift = driftEvaluation;
+
+        this.onNewStep({
+          ...normalized,
+          activeGoal: this.activeGoal
+        });
+
+        if (driftEvaluation.isDrift) {
+          this.onDriftAlert({
+            step: normalized.stepIndex,
+            driftCategory: driftEvaluation.category,
+            driftReason: driftEvaluation.reason,
+            activeGoal: this.activeGoal,
+            tool: normalized.toolName,
+            target: normalized.targetPath,
+            timestamp: normalized.timestamp
+          });
+        }
+      }
+    } catch {}
   }
 
   normalizeStep(raw, lineIndex) {

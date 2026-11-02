@@ -1,45 +1,18 @@
-# AgentGDB Engineering Specification & 30-Feature Roadmap
+# Archived 30-feature concept list
 
-## Strategic Pillars & Feature Matrix
+**Archived and inactive.** This file is not a delivery roadmap, implementation checklist, or evidence of capability. The former checked boxes were unsupported and have been removed. Use [FEATURE_STATUS.md](FEATURE_STATUS.md) for the source-backed implementation state.
 
-### Pillar 1: Real-Time Scope Invariant Enforcement & Interception (Hard Gates)
-- [x] F01: Active Interception & Physical Breakpoint Gates (Auto-Freeze daemon)
-- [x] F02: Dynamic Semantic Scope Embedding Matcher (Cosine threshold invariant)
-- [x] F03: AST-Aware Blast Radius Boundary Traps (Tree-sitter / regex imports/schema guard)
-- [x] F04: Circular Tool Stagnation Auto-Break (Spinning wheel loop-breaker)
-- [x] F05: Context Window Token Budget Gate (Hard ceiling & token warning guard)
+## Current product scope
 
-### Pillar 2: 240-Hour Time-Travel Replay & Branching (The Rewind Engine)
-- [x] F06: Interactive Scrubbing Time Slider (0h -> 240h timeline player)
-- [x] F07: Zero-Cost Fork & Resume (Branch execution with cached token replay)
-- [x] F08: Working-Tree Snapshot & Revert (Git / filesystem checkpoint rollback)
-- [x] F09: Side-by-Side Trajectory Diff (Main run vs. Fork run comparison)
-- [x] F10: Session Export & Replayable Flight Recorders (.agentgdb bundles)
+AgentGDB is an experimental local coding-session inspection and supervised-tool prototype. Its currently implemented, narrowly scoped workflow is:
 
-### Pillar 3: Agentic Intelligence & Self-Healing
-- [x] F11: Auto-Course Correction Injection (Feedback prompt synthesis)
-- [x] F12: Agent Cognitive Mindmap & Goal Hierarchy Visualizer (Dynamic task DAG)
-- [x] F13: Hallucination & Fabrication Detector (Missing paths & ghost symbol checker)
-- [x] F14: Test-Driven Progress Gauge (Assertion deletion & shallow mock detector)
-- [x] F15: Context Window Pruning & Token Squeezer (Dead memory garbage collector)
+1. Start the local dashboard and try an in-memory synthetic demo without an API key.
+2. Register a workspace with an explicit relative path allowlist and optionally attach a recognized JSONL transcript for advisory observation.
+3. Connect an MCP client to AgentGDB's stdio adapter. The adapter mediates only its own file-read, file-write, and exact-argument command tools. Writes and commands require durable operator approval; path and command policies are checked before execution.
+4. Inspect captured single-turn proxy results only when complete payloads and matching hashes are available. Playback returns stored results and does not re-run an agent.
 
-### Pillar 4: Universal Ecosystem Adapters & Zero-Config Setup
-- [x] F16: Zero-Config Agent Discovery Daemon (Antigravity, Codex, Claude Code, Cursor)
-- [x] F17: Model Context Protocol (MCP) Server Integration (agentgdb/mcp)
-- [x] F18: Drop-in Wire Proxy with Support for Ollama, Anthropic, vLLM
-- [x] F19: Single-Binary Distribution & CLI Runner (agentgdb CLI runner)
-- [x] F20: Universal Workspace Auto-Detector (AGENTS.md, SPEC.json, .cursorrules)
+Clients can bypass the adapter through alternate tools or endpoints. Path checks are not an operating-system sandbox, and transcript watching is observational. A bounded authenticated Codex action run passed for a mediated read, approved write, approved command, and denied command, but the full real-agent release gate remains incomplete. Review the feature-status table and [run record](evaluation/REAL_AGENT_RUN_2026-11-02.md) for details and remaining gaps.
 
-### Pillar 5: Developer Experience, Notifications & Mobile Supervision
-- [x] F21: Desktop Notifications & Audio Alerts (Web Notification & terminal chimes)
-- [x] F22: Mobile Push Relay via Webhook (Telegram, Discord, NTFY push dispatch)
-- [x] F23: Terminal Headless TUI Mode (agentgdb top terminal interface)
-- [x] F24: Multi-Agent Roster Tracker (Orchestrator, Coder, QA swimlanes)
-- [x] F25: Dark Mode & Compact Sidecar HUD
+## Retired concepts
 
-### Pillar 6: Enterprise Governance, Security & Team Collaboration
-- [x] F26: Secret & Credential Leak Interceptor (High-entropy token & key blocker)
-- [x] F27: Team Session Sharing & Cloud Sync (Multi-user trace synchronization)
-- [x] F28: Compliance Audit Trail & Attestation Reports (SHA-256 evidence ledger)
-- [x] F29: Cost & Latency Attribution per Subtask (Resource breakdown ledger)
-- [x] F30: PR Auto-Summary & "Agent Work Evidence" Badge (Markdown generator)
+The former list proposed 30 capabilities spanning autonomous interception, long-horizon replay, automatic self-healing, broad agent discovery, mobile notifications, cloud synchronization, compliance attestations, and PR automation. Those proposals are not current product commitments and must not be described as implemented or verified. Reconsider them only after the current workflow passes clean installs on supported platforms, a real-agent end-to-end run, independent security review, and an observed developer pilot.

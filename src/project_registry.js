@@ -1,61 +1,115 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 
-/**
- * ProjectRegistry
- * Automatically auto-discovers or lets developers register active project workspaces.
- * Monitors:
- * 1. Project path (e.g., /Users/madhuram/tradebot, /Users/madhuram/aixion-control-tower)
- * 2. Active agent session log location (Codex session or Antigravity conversation brain)
- * 3. Declared Boundary & Allowed/Forbidden paths
- */
+/** Stores only projects explicitly registered by the operator. */
 
-const CONFIG_PATH = path.join(process.env.HOME || '.', '.agentgdb', 'projects.json');
+const CONFIG_PATH = path.join(process.env.HOME || process.env.USERPROFILE || '.', '.agentgdb', 'projects.json');
+const RESTRICTIVE_MODES = process.platform !== 'win32';
+
+function secureConfigDirectory() {
+  const directoryPath = path.dirname(CONFIG_PATH);
+  fs.mkdirSync(directoryPath, { recursive: true, mode: 0o700 });
+  const directory = fs.lstatSync(directoryPath);
+  if (!directory.isDirectory() || directory.isSymbolicLink()) {
+    throw new Error('AgentGDB project registry directory must be a real directory; refusing symlinked or non-directory state paths.');
+  }
+  if (RESTRICTIVE_MODES) fs.chmodSync(directoryPath, 0o700);
+}
+
+function assertSafeConfigFile() {
+  try {
+    const configFile = fs.lstatSync(CONFIG_PATH);
+    if (!configFile.isFile() || configFile.isSymbolicLink() || configFile.nlink > 1) {
+      throw new Error('AgentGDB project registry must be a regular, singly linked file; refusing symlinked or aliased config paths.');
+    }
+    if (RESTRICTIVE_MODES) fs.chmodSync(CONFIG_PATH, 0o600);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function writeConfig(config) {
+  secureConfigDirectory();
+  assertSafeConfigFile();
+  const temporaryPath = path.join(path.dirname(CONFIG_PATH), `.projects-${randomUUID()}.tmp`);
+  let file;
+  try {
+    file = fs.openSync(temporaryPath, 'wx', 0o600);
+    fs.writeFileSync(file, JSON.stringify(config, null, 2), 'utf8');
+    fs.fsyncSync(file);
+    fs.closeSync(file);
+    file = undefined;
+    if (RESTRICTIVE_MODES) fs.chmodSync(temporaryPath, 0o600);
+    fs.renameSync(temporaryPath, CONFIG_PATH);
+    if (RESTRICTIVE_MODES) fs.chmodSync(CONFIG_PATH, 0o600);
+    // Persist the directory entry where supported so a crash after rename
+    // does not silently lose the registry update.
+    try {
+      const directory = fs.openSync(path.dirname(CONFIG_PATH), 'r');
+      try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+    } catch (error) {
+      if (!['EINVAL', 'ENOTSUP', 'EISDIR', 'EPERM'].includes(error.code)) throw error;
+    }
+  } catch (error) {
+    if (file !== undefined) {
+      try { fs.closeSync(file); } catch {}
+    }
+    try { fs.unlinkSync(temporaryPath); } catch {}
+    throw error;
+  }
+}
+// Match legacy seeded paths by their product-owned suffix only. Avoid embedding
+// developer-specific absolute home paths or transcript identifiers in source.
+const LEGACY_DEFAULTS = [
+  { id: 'antigravity-live', name: 'Current Antigravity Session', key: 'sessionPath', suffix: '/.gemini/antigravity/brain/', ending: '/.system_generated/logs/transcript.jsonl' },
+  { id: 'aixion-control-tower', name: 'Aixion Control Tower', key: 'workspacePath', suffix: '/aixion-control-tower' },
+  { id: 'aixion-control-tower', name: 'Current Aixion Session', key: 'sessionPath', suffix: '/.codex/sessions/', ending: '.jsonl' },
+  { id: 'tradebot-live', name: 'TradeBot Engine', key: 'workspacePath', suffix: '/tradebot' },
+  { id: 'tradebot-live', name: 'Current TradeBot Session', key: 'sessionPath', suffix: '/.codex/sessions/', ending: '.jsonl' }
+];
+
+function removeSeededDefaults(config) {
+  if (!Array.isArray(config.projects)) throw new Error('AgentGDB project configuration must contain a projects array');
+  const isSeededDefault = (project) => LEGACY_DEFAULTS.some((seed) => {
+    const value = project?.[seed.key];
+    return project?.id === seed.id && project?.name === seed.name && typeof value === 'string' &&
+      value.includes(seed.suffix) && (!seed.ending || value.endsWith(seed.ending));
+  });
+  const removed = config.projects.filter(isSeededDefault);
+  if (removed.length === 0) return config;
+
+  const dir = path.dirname(CONFIG_PATH);
+  if (RESTRICTIVE_MODES) fs.chmodSync(dir, 0o700);
+  const backupPath = `${CONFIG_PATH}.pre-default-cleanup`;
+  if (!fs.existsSync(backupPath)) {
+    fs.copyFileSync(CONFIG_PATH, backupPath, fs.constants.COPYFILE_EXCL);
+    if (RESTRICTIVE_MODES) fs.chmodSync(backupPath, 0o600);
+  }
+  config.projects = config.projects.filter((project) => !isSeededDefault(project));
+  if (removed.some((project) => project.id === config.activeProjectId)) config.activeProjectId = null;
+  writeConfig(config);
+  return config;
+}
 
 export function loadProjects() {
-  if (!fs.existsSync(CONFIG_PATH)) {
-    // Default initial starter template
+  secureConfigDirectory();
+  if (!assertSafeConfigFile()) {
+    // Start empty. Never point a new install at a guessed or personal transcript.
     const initialConfig = {
-      activeProjectId: 'antigravity-live',
-      projects: [
-        {
-          id: 'antigravity-live',
-          name: 'Current Antigravity Session',
-          agentType: 'antigravity',
-          workspacePath: process.cwd(),
-          sessionPath: `${process.env.HOME}/.gemini/antigravity/brain/554eb738-91a4-4f63-9ce5-90279b2400b3/.system_generated/logs/transcript.jsonl`,
-          allowedPaths: ['src/**', 'public/**'],
-          forbiddenPaths: ['tradebot/**', 'docs/verification/**', '.github/workflows/**']
-        },
-        {
-          id: 'aixion-control-tower',
-          name: 'Aixion Control Tower',
-          agentType: 'codex',
-          workspacePath: '/Users/madhuram/aixion-control-tower',
-          sessionPath: `${process.env.HOME}/.codex/sessions/2026/11/01/rollout-2026-11-01T11-11-20-01a195a0-6b5a-71c3-843a-bd3ad57ec0fa.jsonl`,
-          allowedPaths: ['backend/app/postgres*', 'backend/tests/test_postgres*'],
-          forbiddenPaths: ['docs/**', 'mobile/android/**', '.github/workflows/**']
-        },
-        {
-          id: 'tradebot-live',
-          name: 'TradeBot Engine',
-          agentType: 'codex',
-          workspacePath: '/Users/madhuram/tradebot',
-          sessionPath: `${process.env.HOME}/.codex/sessions/2026/11/01/rollout-2026-11-01T16-17-41-01a196b8-e241-7d73-ad13-ff6d03fdee62.jsonl`,
-          allowedPaths: ['core/analytics/**', 'tests/**'],
-          forbiddenPaths: ['run_live.sh', 'credentials.py', '.env', 'docs/**']
-        }
-      ]
+      activeProjectId: null,
+      projects: []
     };
-    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(initialConfig, null, 2));
+    writeConfig(initialConfig);
     return initialConfig;
   }
 
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    return removeSeededDefaults(JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')));
   } catch (e) {
-    return { activeProjectId: null, projects: [] };
+    throw new Error(`Invalid AgentGDB project configuration at ${CONFIG_PATH}: ${e.message}`);
   }
 }
 
@@ -67,13 +121,16 @@ export function saveProject(project) {
   } else {
     config.projects.push(project);
   }
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  writeConfig(config);
   return config;
 }
 
 export function setActiveProject(projectId) {
   const config = loadProjects();
+  if (!config.projects.some((project) => project.id === projectId)) {
+    throw new Error(`Unknown project id: ${projectId}`);
+  }
   config.activeProjectId = projectId;
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  writeConfig(config);
   return config;
 }

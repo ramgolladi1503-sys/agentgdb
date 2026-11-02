@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "releaseTag": "",
+  "commitSha": "",
+  "realAgent": {
+    "status": "NOT_RUN",
+    "host": "",
+    "version": "",
+    "commitSha": "",
+    "evidenceUrl": "",
+    "alternateToolsDisabled": false,
+    "checks": {
+      "allowlistedRead": false,
+      "approvedWrite": false,
+      "approvedCommand": false,
+      "deniedCommand": false,
+      "timeout": false,
+      "daemonRestart": false,
+      "cancellation": false
+    }
+  },
+  "securityReview": {
+    "status": "NOT_REVIEWED",
+    "reviewer": "",
+    "reviewDate": "",
+    "commitSha": "",
+    "evidenceUrl": "",
+    "criticalFindings": null,
+    "highFindings": null,
+    "disposition": ""
+  },
+  "userPilot": {
+    "status": "NOT_RUN",
+    "participants": 0,
+    "method": "",
+    "date": "",
+    "commitSha": "",
+    "evidenceUrl": ""
+  },
+  "releaseNotes": {
+    "path": "",
+    "reviewedBy": "",
+    "reviewDate": "",
+    "limitationsIncluded": false
+  }
+}

@@ -1,61 +1,56 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
 
 /**
- * AttestationAndPrSummaryService
- * F28: Generates tamper-proof SHA-256 signed evidence trail of all turns.
- * F30: Formats an "Agent Work Evidence" markdown PR summary.
+ * Creates a hash-linked record and a descriptive session summary. These
+ * outputs do not verify identity, scope compliance, or execution safety.
  */
 export class AttestationAndPrSummaryService {
   static generateAttestationLedger(session) {
     const turns = session.turns || [];
     let previousHash = '0000000000000000000000000000000000000000000000000000000000000000';
     
-    const blocks = turns.map((t, idx) => {
-      const dataString = `${t.id}:${t.turn_index}:${t.tool_calls || ''}:${t.tool_results || ''}:${previousHash}`;
+    const blocks = turns.map((t) => {
+      const parentHash = previousHash;
+      const dataString = `${t.id}:${t.turn_index}:${t.tool_calls || ''}:${t.tool_results || ''}:${parentHash}`;
       const hash = crypto.createHash('sha256').update(dataString).digest('hex');
       previousHash = hash;
       return {
         turnIndex: t.turn_index,
         timestamp: t.created_at,
         hash,
-        previousHash,
-        verified: true
+        previousHash: parentHash,
+        integrity: 'HASHED_NOT_VERIFIED'
       };
     });
 
     return {
       sessionId: session.id,
       generatedAt: new Date().toISOString(),
-      merkleRoot: previousHash,
+      chainHead: previousHash,
       blocks
     };
   }
 
   static generatePrSummaryMarkdown(session, metrics = {}) {
-    const totalSteps = metrics.totalSteps || (session.turns ? session.turns.length : 0);
-    const inScope = metrics.inScopeSteps || totalSteps;
-    const drifts = metrics.totalDriftSteps || 0;
-    const duration = metrics.elapsedHours || 0;
-    const driftPercentage = totalSteps > 0 ? Math.round((drifts / totalSteps) * 100) : 0;
+    const totalSteps = metrics.totalSteps ?? (session.turns ? session.turns.length : 0);
+    const inScope = metrics.inScopeSteps ?? null;
+    const drifts = metrics.totalDriftSteps ?? null;
+    const duration = metrics.elapsedHours ?? 0;
+    const driftPercentage = totalSteps > 0 && drifts !== null ? Math.round((drifts / totalSteps) * 100) : null;
 
     return `
-## 🕵️‍♂️ Agent Work Evidence & Drift Attestation
-*Verified autonomously via **AgentGDB**.*
+## AgentGDB session summary (unverified)
+*Descriptive values from the supplied session data. This summary does not prove safe or in-scope execution.*
 
-| Metric | Measured Value | Threshold Check |
+| Metric | Supplied value |
 | :--- | :--- | :--- |
-| **Active Goal** | \`${metrics.activeGoal || 'System Goal'}\` | Declared Invariant |
-| **Total Lifetime** | \`${duration} hrs\` | Within Bounds |
-| **Total Turns** | \`${totalSteps} turns\` | Event-Sourced |
-| **In-Scope Progress** | \`${inScope} steps (${100 - driftPercentage}%)\` | ✅ **PASS** |
-| **Detected Drifts** | \`${drifts} steps\` | Trapped & Remediated |
-| **Attestation Seal** | \`SHA256:${crypto.randomBytes(16).toString('hex')}\` | Cryptographically Verified |
+| **Active goal** | \`${metrics.activeGoal || 'Not provided'}\` |
+| **Elapsed time** | \`${duration} hours\` |
+| **Total steps** | \`${totalSteps}\` |
+| **Steps marked in scope** | \`${inScope === null ? 'Not provided' : inScope}\` |
+| **Steps marked as drift** | \`${drifts === null ? 'Not provided' : drifts}\` |
 
-### Trajectory Status
-> **Health: ${driftPercentage === 0 ? '🟢 100% HEALTHY' : (driftPercentage < 15 ? '🟡 MODERATE BOUNDARY ATTENTION' : '🔴 CRITICAL DRIFT TRAPPED')}**  
-> All uncommitted tool mutations and file changes adhered to declared scope invariants.
+Observed drift count: ${drifts === null ? 'not provided' : `${drifts} of ${totalSteps} steps (${driftPercentage}%)`}. This is an advisory observation, not an enforcement or certification result.
 `;
   }
 }

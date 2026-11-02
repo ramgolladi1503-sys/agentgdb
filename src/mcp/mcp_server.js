@@ -8,7 +8,7 @@ export class AgentGdbMcpServer {
     this.tools = [
       {
         name: 'get_drift_status',
-        description: 'Check whether the agent is currently within its declared scope boundary or drifting.',
+        description: 'Read the latest advisory scope status. This tool does not block agent actions.',
         inputSchema: {
           type: 'object',
           properties: {}
@@ -16,7 +16,7 @@ export class AgentGdbMcpServer {
       },
       {
         name: 'assert_scope_boundary',
-        description: 'Verify if a proposed file path or shell command is permitted before executing.',
+        description: 'Check a proposed target against the configured advisory path policy; this does not enforce or block execution.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -27,7 +27,7 @@ export class AgentGdbMcpServer {
       },
       {
         name: 'request_human_approval',
-        description: 'Submit an architectural decision or destructive action to the AgentGDB web UI for approval.',
+        description: 'Unavailable. Human approval is not implemented; this call fails explicitly.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -42,46 +42,52 @@ export class AgentGdbMcpServer {
 
   async handleMcpToolCall(toolName, args = {}) {
     if (toolName === 'get_drift_status') {
-      const res = await fetch(`${this.daemonUrl}/api/live/active-goal`);
-      const data = await res.json();
+      let data;
+      try {
+        const res = await fetch(`${this.daemonUrl}/api/live/active-goal`);
+        if (!res.ok) throw new Error(`status endpoint returned ${res.status}`);
+        data = await res.json();
+      } catch (error) {
+        data = { activeGoal: null, isWatching: false, driftStatus: 'UNKNOWN', statusError: error.message };
+      }
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             activeGoal: data.activeGoal,
-            driftStatus: 'ON_TRACK',
-            monitoringActive: data.isWatching
+            driftStatus: data.driftStatus || 'UNKNOWN',
+            monitoringActive: data.isWatching === true,
+            enforcement: 'ADVISORY_ONLY',
+            statusError: data.statusError
           }, null, 2)
         }]
       };
     }
 
     if (toolName === 'assert_scope_boundary') {
-      const target = (args.targetPath || '').toLowerCase();
-      const isForbidden = target.includes('credentials') || target.includes('.env') || target.includes('.github');
+      const target = args.targetPath;
+      let decision;
+      try {
+        const res = await fetch(`${this.daemonUrl}/api/policy/check`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ targetPath: target })
+        });
+        decision = await res.json();
+        if (!res.ok) decision.allowed = false;
+      } catch {
+        decision = { targetPath: target, allowed: false, driftStatus: 'UNKNOWN', reason: 'Policy service unavailable; fail-closed advisory response.' };
+      }
       return {
         content: [{
           type: 'text',
-          text: JSON.stringify({
-            targetPath: args.targetPath,
-            allowed: !isForbidden,
-            reason: isForbidden ? 'Path violates defined scope boundaries.' : 'Path is permitted within active scope.'
-          }, null, 2)
+          text: JSON.stringify(decision, null, 2)
         }]
       };
     }
 
     if (toolName === 'request_human_approval') {
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            status: 'PENDING_OPERATOR_APPROVAL',
-            action: args.actionSummary,
-            message: 'Action submitted to AgentGDB dashboard. Please check http://localhost:9099'
-          }, null, 2)
-        }]
-      };
+      throw new Error('Human approval workflow is not implemented; refusing to imply approval was requested or granted.');
     }
 
     throw new Error(`Unknown MCP Tool: ${toolName}`);

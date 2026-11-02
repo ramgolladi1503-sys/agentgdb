@@ -3,12 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentGDB | Live Autonomous Agent Drift Monitor</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>AgentGDB | Coding-Agent Session Inspector</title>
+  <link href="/tailwind.css" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; background-color: #06090e; color: #e2e8f0; }
-    pre, code, .mono { font-family: 'JetBrains Mono', monospace; }
+    body { background-color: #06090e; color: #e2e8f0; }
     .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
     .scrollbar-thin::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
     @keyframes pulse-ring {
@@ -17,19 +15,32 @@
       100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
     }
     .drift-alert-active { animation: pulse-ring 2s infinite; }
+    @media (max-width: 900px) {
+      body { height: auto; min-height: 100vh; overflow-x: hidden; overflow-y: auto; }
+      #dashboardHeader { height: auto; min-height: 4rem; padding: 1rem; flex-wrap: wrap; align-items: flex-start; gap: 1rem; }
+      #dashboardHeader > div { flex-wrap: wrap; gap: 0.75rem; }
+      #dashboardHeader > div:last-child > div:nth-child(2) { flex-wrap: wrap; row-gap: 0.5rem; }
+      #agentGoalBar { align-items: flex-start; flex-wrap: wrap; gap: 0.5rem; padding-inline: 1rem; }
+      #gettingStarted { padding-inline: 1rem; }
+      #sessionWorkspace { min-height: 0; flex-direction: column; overflow: visible; }
+      #sessionTimeline { width: 100%; height: 42vh; min-height: 240px; border-right: 0; border-bottom: 1px solid #1e293b; }
+      #sessionInspector { min-height: 320px; overflow: visible; }
+      #sessionInspector > div:last-child { min-height: 260px; }
+      #inspectPayload { white-space: pre-wrap; overflow-wrap: anywhere; }
+    }
   </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden">
 
   <!-- Header Bar -->
-  <header class="h-16 border-b border-slate-800 bg-slate-900/90 px-6 flex items-center justify-between shrink-0">
+  <header id="dashboardHeader" class="h-16 border-b border-slate-800 bg-slate-900/90 px-6 flex items-center justify-between shrink-0">
     <div class="flex items-center gap-4">
       <div class="flex items-center gap-2.5">
-        <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="w-3 h-3 rounded-full bg-slate-500"></span>
         <span class="font-bold tracking-tight text-lg text-white">Agent<span class="text-indigo-400">GDB</span></span>
       </div>
-      <span class="text-xs bg-emerald-950/80 border border-emerald-700/60 text-emerald-300 px-2.5 py-1 rounded font-mono flex items-center gap-1.5">
-        <span class="w-2 h-2 rounded-full bg-emerald-400"></span> LIVE DAEMON STREAMING
+        <span class="text-xs bg-slate-900 border border-slate-700 text-slate-300 px-2.5 py-1 rounded font-mono flex items-center gap-1.5" role="status" aria-live="polite">
+        <span id="connectionDot" class="w-2 h-2 rounded-full bg-amber-400"></span><span id="connectionStatus">Connecting to dashboard…</span>
       </span>
     </div>
 
@@ -59,19 +70,70 @@
   </header>
 
   <!-- Real-Time Active Goal Bar -->
-  <div class="bg-indigo-950/40 border-b border-indigo-900/40 px-6 py-3 flex items-center justify-between shrink-0">
+  <div id="agentGoalBar" class="bg-indigo-950/40 border-b border-indigo-900/40 px-6 py-3 flex items-center justify-between shrink-0">
     <div class="flex items-center gap-3 overflow-hidden">
       <span class="text-xs font-bold uppercase tracking-wider text-indigo-400 shrink-0 font-mono flex items-center gap-1.5">
         🎯 Active Agent Goal:
       </span>
       <span id="activeGoalText" class="text-xs text-indigo-200 font-medium truncate font-mono">
-        Detecting active goal from agent trajectory...
+        No session selected. Connect an explicit transcript to begin observing.
       </span>
     </div>
-    <div id="liveStreamPill" class="text-[11px] font-mono text-emerald-400 shrink-0 flex items-center gap-1.5 ml-4">
-      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Live Watching Transcript
+    <div id="liveStreamPill" class="text-[11px] font-mono text-slate-400 shrink-0 flex items-center gap-1.5 ml-4">
+      <span class="w-2 h-2 rounded-full bg-slate-500"></span> Observer inactive
     </div>
   </div>
+
+  <section id="gettingStarted" class="border-b border-slate-800 bg-slate-900 px-6 py-4 shrink-0 space-y-3">
+    <div class="flex flex-wrap items-center gap-3">
+      <strong class="text-xs text-white">Getting started</strong>
+      <span class="text-xs text-slate-400">Try the privacy-safe demo without an API key, or register a workspace with an explicit path allowlist.</span>
+      <button id="demoStart" type="button" class="text-xs px-3 py-1.5 rounded bg-indigo-700 text-white">Run local demo</button>
+      <label class="text-xs text-slate-300">Dashboard/operator token <input id="approvalToken" type="password" autocomplete="off" class="ml-1 px-2 py-1 rounded bg-slate-950 border border-slate-700" /></label>
+    </div>
+    <p id="operatorTokenHelp" role="note" class="text-xs text-slate-400">Enter your configured <code>AGENTGDB_APPROVAL_TOKEN</code>. If it is unset, copy the one-run token from the daemon terminal. Keep it private; never give it to the coding agent.</p>
+    <form id="projectSetup" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3 items-end">
+      <label class="block text-xs text-slate-300">Workspace ID (generated from name; editable)
+        <input name="id" required placeholder="my-project" autocomplete="off" aria-describedby="workspaceIdHelp" class="mt-1 w-full text-xs px-2 py-2 rounded bg-slate-950 border border-slate-700">
+        <span id="workspaceIdHelp" class="sr-only">A URL-safe ID is generated from the workspace name. Edit it if you prefer a different ID.</span>
+      </label>
+      <label class="block text-xs text-slate-300">Workspace name
+        <input name="name" required placeholder="My Project" class="mt-1 w-full text-xs px-2 py-2 rounded bg-slate-950 border border-slate-700">
+      </label>
+      <label class="block text-xs text-slate-300">Workspace directory
+        <input name="workspacePath" required placeholder="/path/to/project or C:\\path\\to\\project" title="Enter an absolute path. macOS/Linux: run pwd. PowerShell: (Get-Location).Path" class="mt-1 w-full text-xs px-2 py-2 rounded bg-slate-950 border border-slate-700">
+      </label>
+      <label class="block text-xs text-slate-300">Allowed relative paths
+        <input name="allowedPaths" required placeholder="src/**, test/**" title="Comma-separated paths relative to the workspace" class="mt-1 w-full text-xs px-2 py-2 rounded bg-slate-950 border border-slate-700">
+      </label>
+      <label class="block text-xs text-slate-300">Allowed commands (optional)
+        <input name="allowedCommands" placeholder="JSON array of exact commands" title="Optional. Configure exact executable and argument arrays. See the setup guide for an example." class="mt-1 w-full text-xs px-2 py-2 rounded bg-slate-950 border border-slate-700">
+      </label>
+      <label class="block text-xs text-slate-300">Transcript file (optional observer)
+        <input name="sessionPath" placeholder="absolute JSONL path (optional)" class="mt-1 w-full text-xs px-2 py-2 rounded bg-slate-950 border border-slate-700">
+      </label>
+      <button class="sm:col-span-2 xl:col-span-6 justify-self-start text-xs px-3 py-2 rounded bg-slate-700 text-white">Register and activate workspace</button>
+    </form>
+    <span id="setupStatus" role="status" aria-live="polite" class="block text-xs text-amber-300"></span>
+    <details id="privacyControls" class="border-t border-slate-800 pt-2">
+      <summary class="cursor-pointer text-xs text-slate-300">Stored data and deletion</summary>
+      <div class="mt-2 flex flex-wrap items-end gap-3">
+        <p class="w-full text-xs text-slate-400">AgentGDB keeps local session metadata in SQLite under your home directory. Payload capture is off by default. Deleting records is permanent.</p>
+        <label class="text-xs text-slate-300">Delete turns and approval records created before
+          <input id="traceDeleteBefore" type="datetime-local" class="ml-1 px-2 py-1 rounded bg-slate-950 border border-slate-700">
+        </label>
+        <label class="text-xs text-slate-300"><input id="traceDeleteMetadata" type="checkbox" class="mr-1">Also delete session summaries with no remaining turns</label>
+        <button id="deleteTraces" type="button" disabled class="text-xs px-3 py-1.5 rounded bg-rose-900 text-white disabled:opacity-50">Delete selected records</button>
+        <span id="traceDeleteStatus" role="status" aria-live="polite" class="text-xs text-slate-300">Enter the operator token before deleting stored data.</span>
+      </div>
+    </details>
+  </section>
+
+  <section id="approvalPanel" class="hidden border-b border-amber-700 bg-amber-950/40 px-6 py-3 shrink-0">
+    <div class="flex flex-wrap items-center gap-3 mb-2"><h2 class="text-xs font-bold text-amber-200">Mutating actions awaiting explicit approval</h2><button id="loadApprovals" type="button" class="text-xs px-2 py-1 rounded bg-amber-800">Load approvals</button><span id="approvalStatus" role="status" class="text-xs text-amber-100">Enter the local operator token above to review approval details.</span></div>
+    <div id="approvalList" class="space-y-2"></div>
+    <details class="mt-3"><summary class="cursor-pointer text-xs text-amber-200">Recent approval and execution records</summary><div id="approvalHistory" class="mt-2 space-y-1"></div></details>
+  </section>
 
   <!-- Real-Time Drift Alert Banner (Triggered immediately on drift) -->
   <div id="liveDriftAlertBox" class="bg-rose-950/80 border-b border-rose-600/70 px-6 py-3.5 hidden shrink-0 drift-alert-active">
@@ -97,22 +159,22 @@
   </div>
 
   <!-- Main View -->
-  <div class="flex-1 flex overflow-hidden">
+  <div id="sessionWorkspace" class="flex-1 flex overflow-hidden">
 
     <!-- Left Timeline Column -->
-    <aside class="w-[480px] border-r border-slate-800 bg-slate-950 flex flex-col shrink-0">
+    <aside id="sessionTimeline" class="w-[480px] border-r border-slate-800 bg-slate-950 flex flex-col shrink-0">
       <div class="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
         <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Live Agent Trajectory</span>
         <span id="stepCountBadge" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono">0 steps</span>
       </div>
 
       <div id="timelineContainer" class="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin">
-        <div class="text-center text-xs text-slate-500 py-10">Streaming live agent events...</div>
+        <div id="timelineEmptyState" class="text-center text-xs text-slate-500 py-10">No session connected. Register a transcript to observe events.</div>
       </div>
     </aside>
 
     <!-- Right Inspector Column -->
-    <main class="flex-1 flex flex-col bg-slate-900/10 overflow-hidden">
+    <main id="sessionInspector" class="flex-1 flex flex-col bg-slate-900/10 overflow-hidden">
       
       <div class="h-12 border-b border-slate-800 bg-slate-900/60 px-6 flex items-center justify-between shrink-0">
         <div class="flex items-center gap-3">
@@ -139,56 +201,357 @@ Select any step from the live timeline to view what the agent executed.
 
   </div>
 
-  <script>
+  <script type="module">
+    import { workspaceIdFromName } from './workspace_id.js';
+
     let steps = [];
     let isPaused = false;
     let selectedStep = null;
 
+    function apiFetch(url, options = {}) {
+      const headers = new Headers(options.headers || {});
+      const token = document.getElementById('approvalToken')?.value.trim();
+      if (token) headers.set('x-agentgdb-approval-token', token);
+      return fetch(url, { ...options, headers });
+    }
+
+    async function loadApprovals() {
+      const tokenInput = document.getElementById('approvalToken');
+      const token = tokenInput.value.trim();
+      const panel = document.getElementById('approvalPanel');
+      const list = document.getElementById('approvalList');
+      const history = document.getElementById('approvalHistory');
+      const status = document.getElementById('approvalStatus');
+      if (!token) {
+        list.replaceChildren();
+        history.replaceChildren();
+        panel.classList.add('hidden');
+        return;
+      }
+      let response;
+      try {
+        response = await apiFetch('/api/approvals', { headers: { 'x-agentgdb-approval-token': token }, cache: 'no-store' });
+      } catch (error) {
+        status.textContent = `Could not load approvals: ${error.message}`;
+        return;
+      }
+      if (response.status === 401) {
+        list.replaceChildren();
+        history.replaceChildren();
+        status.textContent = 'Operator token is invalid.';
+        return;
+      }
+      if (!response.ok) {
+        status.textContent = `Could not load approvals (${response.status}).`;
+        return;
+      }
+      const data = await response.json();
+      list.replaceChildren();
+      const recent = data.recent || [];
+      panel.classList.remove('hidden');
+      status.textContent = data.approvals.length ? `${data.approvals.length} action(s) await review.` : 'Operator authenticated; no pending approvals.';
+      for (const approval of data.approvals) {
+        const row = document.createElement('div');
+        row.className = 'flex items-start gap-3 text-xs text-slate-100';
+        const details = document.createElement('pre');
+        details.className = 'flex-1 whitespace-pre-wrap';
+        details.textContent = `${approval.action.name} | risk ${approval.risk}\n${JSON.stringify(approval.action, null, 2)}`;
+        row.append(details);
+        for (const decision of ['APPROVED', 'DENIED']) {
+          const button = document.createElement('button');
+          button.className = decision === 'APPROVED' ? 'px-3 py-1 bg-emerald-700 rounded' : 'px-3 py-1 bg-rose-700 rounded';
+          button.textContent = decision;
+          button.onclick = async () => {
+            const result = await apiFetch(`/api/approvals/${encodeURIComponent(approval.id)}/decision`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-agentgdb-approval-token': token }, body: JSON.stringify({ decision }) });
+            status.textContent = result.ok ? 'Decision recorded.' : `Decision failed: ${(await result.json()).error}`;
+            await loadApprovals();
+          };
+          row.append(button);
+        }
+        list.append(row);
+      }
+      history.replaceChildren();
+      for (const item of recent) {
+        const entry = document.createElement('div');
+        entry.className = 'text-[11px] text-slate-300 font-mono border-t border-slate-800 pt-1';
+        entry.textContent = `${item.status} / ${item.execution_status} / ${item.action.name || 'action'} / ${new Date(item.created_at).toLocaleString()}${item.decision_reason ? ` / ${item.decision_reason}` : ''}`;
+        history.append(entry);
+      }
+    }
+
+    document.getElementById('loadApprovals').onclick = loadApprovals;
+    document.getElementById('approvalToken').addEventListener('change', () => {
+      Promise.allSettled([loadActiveGoal(), loadProjects(), loadApprovals()]);
+      dashboardAuthRejected = false;
+      const token = document.getElementById('approvalToken').value.trim();
+      if (dashboardSocket && dashboardSocket.readyState !== WebSocket.CLOSED) {
+        dashboardSocket.close(1000, 'Operator token changed');
+      } else if (token) {
+        connectDashboardSocket();
+      }
+      document.getElementById('deleteTraces').disabled = !document.getElementById('approvalToken').value.trim();
+    });
+
+    document.getElementById('deleteTraces').onclick = async () => {
+      const status = document.getElementById('traceDeleteStatus');
+      const before = new Date(document.getElementById('traceDeleteBefore').value).getTime();
+      if (!Number.isFinite(before) || before > Date.now()) {
+        status.textContent = 'Choose a valid date and time in the past.';
+        return;
+      }
+      const includeMetadata = document.getElementById('traceDeleteMetadata').checked;
+      const cutoff = new Date(before).toLocaleString();
+      const detail = includeMetadata
+        ? 'Eligible unreferenced session summaries will also be removed.'
+        : 'Session summaries will be retained.';
+      if (!window.confirm(`Permanently delete turns and approval records created before ${cutoff}? ${detail}`)) return;
+      const button = document.getElementById('deleteTraces');
+      button.disabled = true;
+      status.textContent = 'Deleting selected records…';
+      try {
+        const query = new URLSearchParams({ before: String(before), includeSessionMetadata: String(includeMetadata) });
+        const response = await apiFetch(`/api/traces?${query}`, { method: 'DELETE', cache: 'no-store' });
+        const result = await response.json();
+        if (response.status === 401) throw new Error('Operator token is invalid.');
+        if (!response.ok) throw new Error(result.error || `Deletion failed (${response.status}).`);
+        const deleted = `${result.deletedTurns} turn(s), ${result.deletedApprovals} approval record(s), and ${result.deletedSessions} session summary/summaries`;
+        if (!result.storageCheckpoint?.complete) {
+          status.textContent = `Rows deleted (${deleted}), but SQLite could not fully checkpoint the WAL. Close other database readers and retry the same cutoff; the deletion is safe to repeat.`;
+        } else {
+          status.textContent = `Deletion complete: ${deleted}.`;
+        }
+      } catch (error) {
+        status.textContent = `Could not delete stored data: ${error.message}`;
+      } finally {
+        button.disabled = !document.getElementById('approvalToken').value.trim();
+      }
+    };
+
+    const workspaceIdInput = document.querySelector('#projectSetup [name="id"]');
+    const workspaceNameInput = document.querySelector('#projectSetup [name="name"]');
+    let workspaceIdWasEdited = false;
+    let registeredWorkspaceIds = [];
+    workspaceIdInput.addEventListener('input', () => { workspaceIdWasEdited = true; });
+    workspaceNameInput.addEventListener('input', () => {
+      if (!workspaceIdWasEdited) workspaceIdInput.value = workspaceIdFromName(workspaceNameInput.value, registeredWorkspaceIds);
+    });
+
+    document.getElementById('demoStart').onclick = async () => {
+      const status = document.getElementById('setupStatus');
+      status.textContent = 'Starting privacy-safe demo…';
+      try {
+        const response = await apiFetch('/api/demo/start', { method: 'POST' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Demo request failed (${response.status})`);
+        if (data.event) {
+          steps.unshift(data.event);
+          document.getElementById('activeGoalText').textContent = data.event.activeGoal || 'Synthetic demo';
+          renderStep(data.event, true);
+          updateMetrics();
+        }
+        status.textContent = data.message;
+      } catch (error) { status.textContent = `Demo error: ${error.message}`; }
+    };
+    document.getElementById('projectSetup').onsubmit = async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const project = Object.fromEntries(form.entries());
+      project.sessionPath = project.sessionPath.trim() || undefined;
+      project.allowedPaths = project.allowedPaths.split(',').map((value) => value.trim()).filter(Boolean);
+      project.createOnly = true;
+      project.validateTranscript = true;
+      try { project.allowedCommands = project.allowedCommands.trim() ? JSON.parse(project.allowedCommands) : []; }
+      catch { document.getElementById('setupStatus').textContent = 'Allowed commands must be a valid JSON array of exact command identities.'; return; }
+      if (!Array.isArray(project.allowedCommands) || project.allowedCommands.some((value) => typeof value !== 'string')) {
+        document.getElementById('setupStatus').textContent = 'Allowed commands must be an array of strings.';
+        return;
+      }
+      const status = document.getElementById('setupStatus');
+      status.textContent = 'Validating and registering workspace…';
+      try {
+        const existingResponse = await apiFetch('/api/projects');
+        const existingData = await existingResponse.json();
+        if (!existingResponse.ok) throw new Error(existingData.error || `Workspace list failed (${existingResponse.status})`);
+        registeredWorkspaceIds = existingData.projects.map((entry) => entry.id);
+        if (!workspaceIdWasEdited) {
+          project.id = workspaceIdFromName(project.name, registeredWorkspaceIds);
+          workspaceIdInput.value = project.id;
+        }
+        const response = await apiFetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(project) });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || `Workspace registration failed (${response.status})`);
+        const activationResponse = await apiFetch('/api/projects/switch', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: project.id })
+        });
+        const activation = await activationResponse.json();
+        if (!activationResponse.ok || !activation.success) throw new Error(`Workspace registered but could not be activated: ${activation.error || activationResponse.status}`);
+        status.textContent = `Workspace “${activation.activeProject.name}” is active. ${activation.isWatching ? `Transcript connected: loaded ${activation.totalSteps} events${activation.parseErrorCount ? `; skipped ${activation.parseErrorCount} malformed lines` : ''}. Observer is advisory only.` : 'No transcript is attached; the workspace policy is active.'}`;
+        await loadProjects();
+      } catch (error) { status.textContent = `Workspace setup error: ${error.message}`; }
+    };
     // Load active goal immediately
     async function loadActiveGoal() {
-      const res = await fetch('/api/live/active-goal');
-      const data = await res.json();
-      if (data.activeGoal) {
-        document.getElementById('activeGoalText').textContent = data.activeGoal;
+      const token = document.getElementById('approvalToken').value.trim();
+      if (!token) {
+        document.getElementById('activeGoalText').textContent = 'Enter the dashboard/operator token to load workspace and transcript activity.';
+        document.getElementById('liveStreamPill').lastChild.textContent = ' Operator token needed for activity';
+        return;
+      }
+      try {
+        const res = await apiFetch('/api/live/active-goal');
+        const data = await res.json();
+        if (res.status === 401) throw new Error('Operator token is invalid.');
+        if (!res.ok) throw new Error(data.error || `Dashboard request failed (${res.status})`);
+        if (data.activeGoal) {
+          document.getElementById('activeGoalText').textContent = data.activeGoal;
+        } else {
+          document.getElementById('activeGoalText').textContent = 'No session selected. Connect an explicit transcript to begin observing.';
+        }
+        document.getElementById('liveStreamPill').lastChild.textContent = data.isWatching ? ' Observing transcript (advisory only)' : ' Observer inactive';
+      } catch (error) {
+        document.getElementById('activeGoalText').textContent = `Dashboard access unavailable: ${error.message}`;
+        document.getElementById('liveStreamPill').lastChild.textContent = ' Operator token required';
       }
     }
 
     // Load available registered projects
     async function loadProjects() {
-      const res = await fetch('/api/projects');
-      const data = await res.json();
       const select = document.getElementById('projectSelect');
-      select.innerHTML = '';
-      data.projects.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = `${p.name} (${p.agentType})`;
-        if (p.id === data.activeProjectId) opt.selected = true;
-        select.appendChild(opt);
-      });
+      const token = document.getElementById('approvalToken').value.trim();
+      if (!token) {
+        select.replaceChildren();
+        select.disabled = true;
+        document.getElementById('setupStatus').textContent = 'Enter the dashboard/operator token to load or register a workspace. The privacy-safe demo works without a token.';
+        return;
+      }
+      try {
+        const res = await apiFetch('/api/projects');
+        const data = await res.json();
+        if (res.status === 401) throw new Error('Operator token is invalid.');
+        if (!res.ok) throw new Error(data.error || `Workspace list failed (${res.status})`);
+        registeredWorkspaceIds = data.projects.map((project) => project.id);
+        select.replaceChildren();
+        data.projects.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.agentType || 'workspace'})`;
+          if (p.id === data.activeProjectId) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.disabled = data.projects.length === 0;
+        if (data.projects.length === 0) document.getElementById('setupStatus').textContent = 'No enforcement policy is active. Register and activate a workspace before managed tool actions are allowed.';
+      } catch (error) {
+        select.replaceChildren();
+        select.disabled = true;
+        document.getElementById('setupStatus').textContent = `Could not load workspaces: ${error.message}`;
+      }
     }
 
     document.getElementById('projectSelect').onchange = async (e) => {
       const projectId = e.target.value;
+      const status = document.getElementById('setupStatus');
       document.getElementById('timelineContainer').innerHTML = '<div class="text-center text-xs text-slate-500 py-10">Switching project stream...</div>';
       steps = [];
       updateMetrics();
-      await fetch('/api/projects/switch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId })
-      });
-      loadActiveGoal();
-    loadProjects();
+      try {
+        const response = await apiFetch('/api/projects/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || `Project switch failed (${response.status})`);
+        status.textContent = result.isWatching
+          ? `Project active: ${result.activeProject.name}. Transcript connected: loaded ${result.totalSteps} events${result.parseErrorCount ? `; skipped ${result.parseErrorCount} malformed lines` : ''}. Observer is advisory.`
+          : `Project active: ${result.activeProject.name}. No transcript is attached; workspace policy is active.`;
+      } catch (error) {
+        status.textContent = `Project switch error: ${error.message}`;
+      }
+      await Promise.allSettled([loadActiveGoal(), loadProjects()]);
     };
 
-    // Connect WebSocket
-    const ws = new WebSocket(`ws://${window.location.host}/ws`);
+    let dashboardSocket = null;
+    let dashboardReconnectTimer = null;
+    let dashboardReconnectDelay = 1000;
+    let dashboardAuthRejected = false;
+    const maxDashboardReconnectDelay = 30000;
 
-    ws.onmessage = (event) => {
+    function setDashboardConnectionStatus(message, connected = false) {
+      document.getElementById('connectionStatus').textContent = message;
+      document.getElementById('connectionDot').className = `w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-amber-400'}`;
+    }
+
+    function scheduleDashboardReconnect(message) {
+      setDashboardConnectionStatus(message);
+      if (!document.getElementById('approvalToken').value.trim() || dashboardAuthRejected) return;
+      if (dashboardReconnectTimer !== null) return;
+      const delay = dashboardReconnectDelay;
+      dashboardReconnectDelay = Math.min(dashboardReconnectDelay * 2, maxDashboardReconnectDelay);
+      dashboardReconnectTimer = setTimeout(() => {
+        dashboardReconnectTimer = null;
+        connectDashboardSocket();
+      }, delay);
+    }
+
+    function authenticateDashboardSocket(socket) {
+      const token = document.getElementById('approvalToken').value.trim();
+      if (!token || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ event: 'authenticate', token }));
+    }
+
+    function connectDashboardSocket() {
+      setDashboardConnectionStatus('Connecting to dashboard…');
+      let socket;
+      try {
+        socket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`);
+      } catch {
+        scheduleDashboardReconnect('Dashboard connection failed; retrying.');
+        return;
+      }
+      dashboardSocket = socket;
+      socket.onopen = () => {
+        authenticateDashboardSocket(socket);
+        setDashboardConnectionStatus(document.getElementById('approvalToken').value.trim()
+          ? 'Authenticating dashboard…'
+          : 'Enter operator token to connect live workspace events.');
+      };
+      socket.onerror = () => {
+        setDashboardConnectionStatus('Dashboard connection error; retrying.');
+        socket.close();
+      };
+      socket.onclose = () => {
+        if (dashboardSocket !== socket) return;
+        if (document.getElementById('approvalToken').value.trim() && !dashboardAuthRejected) {
+          scheduleDashboardReconnect(`Dashboard disconnected; retrying in ${Math.ceil(dashboardReconnectDelay / 1000)}s.`);
+        } else {
+          setDashboardConnectionStatus(dashboardAuthRejected ? 'Operator token invalid; update it to reconnect.' : 'Enter operator token to connect live workspace events.');
+        }
+      };
+
+      socket.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.event === 'auth_required') {
+        authenticateDashboardSocket(socket);
+        return;
+      }
+      if (msg.event === 'auth_failed') {
+        dashboardAuthRejected = true;
+        setDashboardConnectionStatus('Operator token invalid; update it to reconnect.');
+        return;
+      }
+      if (msg.event === 'authenticated') {
+        dashboardAuthRejected = false;
+        dashboardReconnectDelay = 1000;
+        setDashboardConnectionStatus('Dashboard connected', true);
+        return;
+      }
+      if (msg.event === 'live_observer_error') {
+        document.getElementById('setupStatus').textContent = `Transcript observer stopped: ${msg.data.message}`;
+        document.getElementById('liveStreamPill').lastChild.textContent = ' Observer stopped';
+        return;
+      }
       if (isPaused) return;
 
-      const msg = JSON.parse(event.data);
       if (msg.event === 'live_step_added') {
         const step = msg.data;
         steps.unshift(step); // add to top of feed
@@ -205,7 +568,11 @@ Select any step from the live timeline to view what the agent executed.
         const alert = msg.data;
         triggerDriftAlert(alert);
       }
-    };
+      if (msg.event === 'approval_pending' || msg.event === 'approval_decided') loadApprovals();
+      };
+    }
+
+    connectDashboardSocket();
 
     function triggerDriftAlert(alert) {
       const box = document.getElementById('liveDriftAlertBox');
@@ -217,6 +584,7 @@ Select any step from the live timeline to view what the agent executed.
 
     function renderStep(step, prepend = false) {
       const container = document.getElementById('timelineContainer');
+      document.getElementById('timelineEmptyState')?.remove();
       const card = document.createElement('div');
       const isDrift = step.drift?.isDrift;
 
@@ -231,17 +599,26 @@ Select any step from the live timeline to view what the agent executed.
         isDrift ? 'bg-rose-950/20 border-rose-900/60 hover:border-rose-600' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'
       }`;
 
-      card.innerHTML = `
-        <div class="flex items-center justify-between text-xs mb-1">
-          <span class="font-mono font-bold text-slate-300">#${step.stepIndex} [${step.toolName}]</span>
-          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded border ${badgeColor}">${badgeText}</span>
-        </div>
-        <div class="text-[11px] font-mono text-slate-400 truncate mb-1">${step.targetPath || step.content || 'Action executed'}</div>
-        <div class="flex items-center justify-between text-[10px] font-mono text-slate-500">
-          <span>+${step.elapsedHours}h mark</span>
-          <span>${new Date(step.timestamp).toLocaleTimeString()}</span>
-        </div>
-      `;
+      const header = document.createElement('div');
+      header.className = 'flex items-center justify-between text-xs mb-1';
+      const title = document.createElement('span');
+      title.className = 'font-mono font-bold text-slate-300';
+      title.textContent = `#${step.stepIndex} [${step.toolName || 'event'}]`;
+      const badge = document.createElement('span');
+      badge.className = `text-[10px] font-mono px-1.5 py-0.5 rounded border ${badgeColor}`;
+      badge.textContent = badgeText;
+      header.append(title, badge);
+      const target = document.createElement('div');
+      target.className = 'text-[11px] font-mono text-slate-400 truncate mb-1';
+      target.textContent = step.targetPath || step.content || 'Action executed';
+      const footer = document.createElement('div');
+      footer.className = 'flex items-center justify-between text-[10px] font-mono text-slate-500';
+      const elapsed = document.createElement('span');
+      elapsed.textContent = `+${Number(step.elapsedHours) || 0}h mark`;
+      const timestamp = document.createElement('span');
+      timestamp.textContent = new Date(step.timestamp).toLocaleTimeString();
+      footer.append(elapsed, timestamp);
+      card.append(header, target, footer);
 
       card.onclick = () => inspectStep(step);
 
@@ -299,6 +676,8 @@ Select any step from the live timeline to view what the agent executed.
 
     loadActiveGoal();
     loadProjects();
+    loadApprovals();
+    setInterval(loadApprovals, 1500);
   </script>
 </body>
 </html>
