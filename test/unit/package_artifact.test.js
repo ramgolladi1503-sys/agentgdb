@@ -25,7 +25,8 @@ test('npm package contains runtime files and excludes development and evaluation
   const packageLock = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package-lock.json'), 'utf8'));
   assert.equal(packageJson.license, 'MIT', 'distribution metadata declares the owner-selected license');
   assert.equal(packageLock.packages[''].license, packageJson.license, 'lockfile root metadata matches the package license');
-  assert.match(fs.readFileSync(path.join(repoRoot, 'LICENSE'), 'utf8'), /^MIT License\n\nCopyright \(c\) 2026 ramgolladi1503-sys\n/);
+  const licenseText = fs.readFileSync(path.join(repoRoot, 'LICENSE'), 'utf8').replaceAll('\r\n', '\n');
+  assert.match(licenseText, /^MIT License\n\nCopyright \(c\) 2026 ramgolladi1503-sys\n/);
   for (const required of [
     'README.md',
     'LICENSE',
